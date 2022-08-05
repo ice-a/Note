@@ -1,8 +1,60 @@
-## 目录系统
+> 鸟哥的Linux私房菜基础学习篇
 
+# 第一章、Linux的规则与安装
+
+## 1.正确关机方法
+
+window单人+多任务，关机不会对他人造成影响，Linux，程序和服务都是后台运行，所以需要正常关机
+
+### 观察系统使用状态
+
+```shell
+# 查看目前有谁在线
+who 
+# 查看网络联机状态
+netstat -a
+# 查看后台执行的程序
+ps -aux
+```
+
+### 将数据同步写入硬盘中的命令
+
+```shell
+sync 
+```
+
+### 关机命令
+
+```shell
+/sbin/shutdown [-krhc] [时间] [警告信息]
+```
+
+## 2. 主机规划与磁盘划分
+
+在Linux系统中，每个设备都被当成一个文件来对待。
+
+# 第五章、Linux的文件权限与目录配置
+
+# 第六章、Linux文件与目录
+
+## 6.1 目录与路径
+
+### 6.1.1 绝对路径与相对路径
+
+绝对路径 根目录开始
+
+相对路径 当前目录开始
+
+### 6.1.2 目录相关的命令
+
+```shell
 cd directory
-cd ..
-cd /
+cd ..           进入上一层目录
+cd /            进入根目录
+cd ~            进入当前用户的主文件目录
+cd ~username    进入user用户的主文件目录
+```
+
 pwd 查看路径
 
 lsblk 查看所有硬件
@@ -12,58 +64,94 @@ df -h 查看硬件使用率
 /media/user_name/ 下面有u盘文件
 /bin 放各种系统自带的命令，放在里面就可以用tab提示
 /opt 存放第三方软件
-/lib 放各种库文件
+/lib 放各种库文件 
 
-## 用户管理
+# 第七章、Linux磁盘与文件系统管理
 
-### 添加用户
+Hard Link (实体链接, 硬式链接或实际链接)
+
+Symbolic Link (符号链接)
 
 ```shell
-su root
+fy@ubuntu:~$ ln [-sf] 来源文件 目标文件
+选项与参数：
+-s, --symbolic：不加此参数默认hard link，加就是symbolic link
+-f ：如果目标文件存在时，就主动的将目标文件直接移除后再创建！
+```
+
+修改符号链接拥有者
+
+chown -h [owner]:[group] Filename
+
+> [Linux修改软连接拥有者及所属群_wjc_grace的博客-CSDN博客_修改软连接的所属用户](https://blog.csdn.net/qq_39557270/article/details/121673420)
+
+# 用户管理
+
+## 添加用户useradd,adduser
+
+```shell
+fy@ubuntu:~$ su root
 方法一：
-useradd -m
-passwd  [username]
-会不显示用户名，需要vim /etc/passwd 
-/bin/sh 改为/bin/bash
+fy@ubuntu:~$ useradd -m [username] 需要加参数，是不会自动创建
+fy@ubuntu:~$ passwd  [username]
 方法二：
 adduser [username]更傻瓜，适合新手
-使用adduser会执行从/etc/skel目录下拷贝所有文件到主目录，所以不出问题的话所有.文件应该都会有
 ```
 
-### 删除用户
+> [使用useradd创建新用户无法创建用户家目录的问题_会飞的鱼aaaa的博客-CSDN博客_useradd无法创建目录](https://blog.csdn.net/qq_40259620/article/details/124970751)
+
+### useradd参考档
 
 ```shell
-userdel -r [username]
+fy@ubuntu:~$ useradd -D
+GROUP=100    # 默认的群组
+HOME=/home   # 默认的主文件夹所在目录
+INACTIVE=-1  # 密码失效日，在 shadow 内的第 7 栏
+EXPIRE=      # 帐号失效日，在 shadow 内的第 8 栏
+SHELL=/bin/sh # 默认的 shell
+SKEL=/etc/skel # 使用者主文件夹的内容数据参考目录
+CREATE_MAIL_SPOOL=no # 是否主动帮使用者创建邮件信箱（mailbox）
 ```
 
-### 用户权限设置
+## 删除用户
 
 ```shell
-visudo
-修改sudo权限
+userdel -r [username] # 删除主目录
+```
+
+## 用户权限设置
+
+```shell
+# 修改sudo权限
+方法一：
+sudo visudo
+方法二:
+sudo vim /etc/sudoers
 ```
 
 /etc/sudoers sudo权限
 /etc/passwd  用户信息
 
-### 切换用户
+## 切换用户
 
 ```shell
-su username 普通切换
-su - username 完全切换，切换用户后会加载该用户的环境变量。
+su username # 普通切换
+su - username # 完全切换，切换用户后会加载该用户的环境变量。
 ```
 
 ```shell
-sudo [-d] [-u username]
+sudo [-d] [-u username] # 
 ```
 
 ```shell
-id -u username 查看是否存在该用户
+id -u username # 查看是否存在该用户
 ```
 
-## 环境变量配置
+# 环境变量配置
 
-> 问题：终端字体一个颜色，文件夹和文件颜色不区分？,且不显示当前你路径
+> 问题：终端字体一个颜色，文件夹和文件颜色不区分？且不显示当前你路径
+
+会不显示用户名，需要vim /etc/passwd ，将/bin/sh 改为/bin/bash
 
 拷贝其他用户的.bashrc文件到自己目录下，（其中有很多环境变量配置）然后手动执行source .bashrc，生效
 
@@ -75,27 +163,33 @@ id -u username 查看是否存在该用户
 
 bash_history bash_logout是干什么的？
 
-## tar命令
+# tar命令
 
 大文件传还是先tar包，再传输
-压缩 tar -czf 新建文件名.tar.gz 要被压缩的文件
-解压 tar -xf  要解压的文件 -C 目录
 
-解压时出现is in the future时间戳不对
-加上--touch
+```shell
+# 压缩 
+tar -czf 新建文件名.tar.gz 要被压缩的文件
+# 解压 
+tar -xf  要解压的文件 -C 目录
+```
 
-发送scp fei@xxxx：~
+解压时出现is in the future时间戳不对，加上--touch，这是因为tar包来自未来，认为不对，需要把时间戳向后调整一天。文件由三种时间戳。
+
+```shell
+date -s "xxxx-xx-xx" # 调整本地时间戳
+```
 
 尝试压缩后缀写成tar，但这样压缩包解压出来不是原来的文件。
 
-## grep、cut命令
+# grep、cut命令
 
 cat /home/fei/cpu2006-alpha/result/CPU2006.037.log | grep "base ref ratio"  | cut -d " " -f3-6
 cat /home/fei/cpu2006-alpha/result/CPU2006.037.log | grep "base ref ratio"  | cut -d " " -f6
 cat /home/fei/cpu2006-alpha/result/CPU2006.037.log | grep "base ref ratio"  | cut -d " " -f6 | cut -d "," -f1
 cat /home/fei/cpu2006-alpha/result/CPU2006.037.log | grep "base ref ratio"  | cut -d " " -f6 | cut -d "," -f1 | cut -d "=" -f2
 
-## apt命令
+# apt命令
 
 ```shell
 apt update package 更新软件源中的所有软件列表
@@ -119,10 +213,10 @@ apt purge package
 apt clean 
 ```
 
-## 制作软连接
+# 制作符号链接
 
 ```shell
-sudo ln -sf 被链接文件  软链接 
+sudo ln -sf 被链接文件  符号链接 
 
 sudo ln -sf /usr/include/linux/stddef.h stddef.h
 
@@ -131,22 +225,49 @@ file stddef.h
 symbolic link to /usr/include/linux/stddef.h
 ```
 
-## locate、find、which命令
+修改符号链接（软连接）拥有者和所属用户组
+
+> [Linux修改软连接拥有者及所属群_wjc_grace的博客-CSDN博客_修改软连接的所属用户](https://blog.csdn.net/qq_39557270/article/details/121673420)
+
+- 给ln命令加上-s选项，则建立软链接。
+  
+  格式：ln -s [真正的文件或者目录] [链接名]
+  
+  [链接名]可以是任何一个文件名或者目录名，并且允许它与原文件不在同一个文件系统中。
+  
+  如果[链接名]是一个已经存在的文件，将不做链接。
+  
+  如果[链接名]是一个已经存在的目录，linux系统会分两种情况自行进行处理：
+  
+  若链接指向的是一个文件名，系统将在已经存在的目录下建立一个与源文件名同名的符号链接文件
+  
+  若链接指向的是一个目录名，系统将在已经存在的目录下建立一个与源目录名同名的符号链接文件
+  
+  总之，建立软链接就是建立了一个新文件。当访问链接文件时，系统就会发现它是个链接文件，系统读取链接文件找到真正要访问的文件然后打开。
+
+# locate、find、which命令
 
 全局查找
 
+```shell
 find / -name filename
+```
 
 查找文件信息
 
+```shell
 locate filename
+```
 
-查找安装路径
+查找命令的路径
 
-which 软件
+```shell
+which 命令
+```
 
-## 进程管理命令
+# 进程管理命令
 
+```shell
 ps aux |grep
-
 ps -ef |grep
+```

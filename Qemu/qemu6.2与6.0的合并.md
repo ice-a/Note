@@ -230,11 +230,11 @@ In file included from ../target/riscv/cpu.h:23,
 ../linux-user/syscall.c:9058:24: error: ‘struct target_old_sigaction’ has no member named ‘sa_restorer’
  9058 |                 old_act->sa_restorer = oact.sa_restorer;
       |                        ^~
-linux-user/syscall_defs.h 569 #if#endif都注释了，怀疑是宏没定义
+解决办法：linux-user/syscall_defs.h 569   #if#endif都注释了，怀疑是宏没定义
 ../linux-user/syscall.c:9119:36: error: ‘restorer’ undeclared (first use in this function)
  9119 |                 act->ka_restorer = restorer;
       |                                    ^~~~~~~~
-9107加了一行
+解决办法：9107加了一行
 12、
 /home/fei/qemu-2/qemu6-system/build/../linux-user/sw64/signal.c:262: undefined reference to `target_restore_altstack'
 collect2: error: ld returned 1 exit status
@@ -253,5 +253,47 @@ qom/object.c 93行
 
 用自己编的内核测试
 
-elf格式问题 linux-user/elfload.c 
-目前166的这一版本注释了，暂时解决了
+elf格式问题 linux-user/elfload.c ，这个格式问题是9906编译的hello的会报 Invalid ELF image for this architecture，9916的不会，不论是动态编译的还是静态编译的。目前166的这一版本注释了，暂时解决了。
+
+执行动态编译程序时
+
+177：
+
+hello-sw-dynamic-9916:error while loading shared libraries：/lib/libc.so.6.1:cannot read file data:Error 9
+
+166：
+
+hello-sw-dynamic-9916:error while loading shared libraries: cannot create cache for search path:Cannot allocate memory
+
+第799个tb块执行时出现问题，看它翻译时
+
+mov指令手册里没有，代码里也没有注释
+
+ldl  $r16 ,1136(fp)  从存储器装入长字到寄存器
+
+pc错了
+
+| main                                       | 5、CPUArchState *env;env = cpu->env_ptr;<br/>6、target_cpu_copy_regs(env, regs);env->pc = regs->pc;<br/>7、struct target_pt_regs regs1, *regs = &regs1;ret = loader_exec(execfd, exec_path, target_argv, target_environ, regs, info, &bprm);                                                                                                                                                                                                                                                                  |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| loader_exec do_init_thread<br/>init_thread | 8、do_init_thread(regs, infop);init_thread(regs, infop);regs->pc = infop->entry;一路都是info传进来<br/>9、retval = load_elf_binary(bprm, infop);                                                                                                                                                                                                                                                                                                                                                                    |
+| load_elf_binary<br/>load_elf_image         | 10、3158load_elf_image(bprm->filename, bprm->fd, info, &elf_interpreter, bprm->buf);2776info->entry = ehdr->e_entry + load_bias;正确赋值<br/>11、3231if (elf_interpreter) { info->load_bias = interp_info.load_bias; info->entry = interp_info.entry;错误赋值<br/>12、struct image_info interp_info;3201if (elf_interpreter) { load_elf_interp(elf_interpreter, &interp_info, bprm->buf);<br/>13、load_elf_image(filename, fd, info, NULL, bprm_buf);info->entry = ehdr->e_entry + load_bias;错误赋值<br/>14、ehdr->e_entry |
+| tb_find                                    | 4、target_ulong pc;cpu_get_tb_cpu_state(env, &pc, &cs_base, &flags); *pc = env->pc;<br/>                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| tb_gen_code                                | 3、TranslationBlock *tb,tb->pc = pc;                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| gen_intermediate_code                      | 2、tb->pc出错                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| translator_loop                            | 1、tb->pc出错                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+
+动态
+
+第一回load_elf_image
+
+经过for循环x86 loaddr变0 ，而sw变为0x120000，
+
+经过target_mmap x86 load_addr变为0x40000，sw变为0x12000
+
+swentry022e0没有加 x86加了
+
+第二回load_elf_interp中的load_elf_image
+
+ehdr->e_type
+
+sw entry没有加       x86加了
