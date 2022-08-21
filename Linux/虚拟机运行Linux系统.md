@@ -104,13 +104,15 @@ sudo vim /etc/inputrc
 找到# set bell-style none 去掉注释
 ```
 
-# 11.更换国内源
+# 11.软件仓库官方源更换为国内源
 
 > [ubuntu更换国内源_EmbededCoder的博客-CSDN博客_ubuntu换源](https://blog.csdn.net/u012308586/article/details/102953882)
 
 # 12.虚拟机共享主机VPN
 
 > [Ubuntu虚拟机共享主机VPN（适用于NAT或桥接） - 简书](https://www.jianshu.com/p/6c7abd4adc9b)
+> 
+> 或者直接在虚拟机中使用VPN
 
 # 13.时间同步
 
@@ -125,3 +127,8 @@ setting->Privacy->Screen Lock
 # 15.终端分屏
 
 > [Ubuntu终端多窗口分屏Terminator_一只积极向上的小咸鱼的博客-CSDN博客_ubuntu终端分屏](https://blog.csdn.net/m0_49448331/article/details/121909760)
+
+# 16.
+
+> fy@ubuntu:~/perfdbt$ sudo apt-get install gcc-aarch64-linux-gnu
+> E: dpkg was interrupted, you must manually run 'sudo dpkg --configure -a' to correct the problem. 

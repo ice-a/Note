@@ -292,7 +292,7 @@ loader_exec(int fdexec, const char *filename, char **argv, char **envp,
                 && bprm->buf[1] == 'E'
                 && bprm->buf[2] == 'L'
                 && bprm->buf[3] == 'F') {//elf文件处理函数
-            retval = load_elf_binary(bprm, infop);//根据segment 的地址将各个段映射到对应的位置，如果不幸和qemu中已有地址冲突了，直接退出了
+            retval = load_elf_binary(bprm, infop);//根据segment的地址将各个段映射到对应的位置，如果不幸和qemu中已有地址冲突了，直接退出了
 #if defined(TARGET_HAS_BFLT)
         } else if (bprm->buf[0] == 'b'
                 && bprm->buf[1] == 'F'
@@ -314,6 +314,8 @@ loader_exec(int fdexec, const char *filename, char **argv, char **envp,
     return(retval);
 }
 ```
+
+##### load_elf_binary
 
 > linux-user/elfload.c:load_elf_binary
 
@@ -534,7 +536,7 @@ static inline TranslationBlock *tb_find(CPUState *cpu,
 
     cpu_get_tb_cpu_state(env, &pc, &cs_base, &flags);//根据env，初始化pc，cs_base和flags
 
-    tb = tb_lookup(cpu, pc, cs_base, flags, cflags);// 在cache中根据target PC查找TB，/include/exec/tb-lookup.h
+    tb = tb_lookup(cpu, pc, cs_base, flags, cflags);//在cache中根据target PC查找TB，/include/exec/tb-lookup.h
     if (tb == NULL) {
         mmap_lock();
         tb = tb_gen_code(cpu, pc, cs_base, flags, cflags);//生成TB
@@ -606,7 +608,7 @@ void tcg_register_thread(void)//用户模式初始化tcg_ctx，经过层级调�
 
 用户模式下是单线程
 
-### CPU，CPUState
+### CPU,CPUState,CPUSW64State
 
 要定义所有CPU的基类，需要定义CPU的类的数据结构和CPU的对象的数据结构，然后给对应的TypeInfo中的函数指针赋值即可。其中CPU类的数据结构名为CPUClass、CPU对象的数据结构名为CPUState，它们被定义在include/qom/cpu.h中，而对应的TypeInfo的赋值工作则在qom/cpu.c中进行。这里只说明CPUClass、CPUState数据结构。
 
@@ -636,9 +638,9 @@ CPUState是CPU对象的数据结构，一个CPUState就表示一个虚拟机的C
 typedef CPUSW64State CPUArchState;
 typedef SW64CPU ArchCPU;
 
-struct CPUSW64State {
-    uint64_t ir[32];//SW寄存器,/usr/include/sw_64/regdef.h
-    uint64_t fr[128];//浮点寄存器32
+struct CPUSW64State {//对应tcg_init_ctx.temps[]
+    uint64_t ir[32];//SW整数寄存器R0~R31,一共32个，即/usr/include/sw_64/regdef.h中定义
+    uint64_t fr[128];//SW浮点寄存器F0~F31，一共32个
     uint64_t pc;//程序计数器
     bool is_slave;
 
@@ -918,7 +920,7 @@ struct DisasContext {
     uint32_t tbflags;
 
     /* The set of registers active in the current context.  */
-    TCGv *ir;
+    TCGv *ir;//当前活跃的寄存器集合
 
     /* Accel: Temporaries for $31 and $f31 as source and destination.  */
     TCGv zero;
@@ -1597,9 +1599,41 @@ include/tcg/tcg-op.h
 
 > tcg/README
 
-#### 寄存器的说明
+#### SW整数寄存器的别名
 
 > /usr/include/sw_64/regdef.h
+
+#### TCG寄存器
+
+```c
+typedef enum {
+    TCG_REG_X0, TCG_REG_X1, TCG_REG_X2, TCG_REG_X3,
+    TCG_REG_X4, TCG_REG_X5, TCG_REG_X6, TCG_REG_X7,
+    TCG_REG_X8, TCG_REG_X9, TCG_REG_X10, TCG_REG_X11,
+    TCG_REG_X12, TCG_REG_X13, TCG_REG_X14, TCG_REG_X15,
+    TCG_REG_X16, TCG_REG_X17, TCG_REG_X18, TCG_REG_X19,
+    TCG_REG_X20, TCG_REG_X21, TCG_REG_X22, TCG_REG_X23,
+    TCG_REG_X24, TCG_REG_X25, TCG_REG_X26, TCG_REG_X27,
+    TCG_REG_X28, TCG_REG_X29, TCG_REG_X30, TCG_REG_X31, 
+
+    TCG_REG_F0=32, TCG_REG_F1, TCG_REG_F2, TCG_REG_F3,
+    TCG_REG_F4, TCG_REG_F5, TCG_REG_F6, TCG_REG_F7,
+    TCG_REG_F8, TCG_REG_F9, TCG_REG_F10, TCG_REG_F11,
+    TCG_REG_F12, TCG_REG_F13, TCG_REG_F14, TCG_REG_F15,
+    TCG_REG_F16, TCG_REG_F17, TCG_REG_F18, TCG_REG_F19,
+    TCG_REG_F20, TCG_REG_F21, TCG_REG_F22, TCG_REG_F23,
+    TCG_REG_F24, TCG_REG_F25, TCG_REG_F26, TCG_REG_F27,
+    TCG_REG_F28, TCG_REG_F29, TCG_REG_F30, TCG_REG_F31,
+
+    /* Aliases.  */
+    TCG_REG_FP = TCG_REG_X15,
+    TCG_REG_RA = TCG_REG_X26,
+    TCG_REG_GP = TCG_REG_X29,
+    TCG_REG_SP = TCG_REG_X30,
+    TCG_REG_ZERO = TCG_REG_X31,
+    TCG_AREG0  = TCG_REG_X9,
+} TCGReg;
+```
 
 #### 系统调用号表
 
@@ -1696,7 +1730,7 @@ struct TCGContext {
 
 ```c
 typedef struct TCGTemp {
-    TCGReg reg:8;
+    TCGReg reg:8;//tcg中的寄存器编号，
     TCGTempVal val_type:8;
     TCGType base_type:8;
     TCGType type:8;
@@ -1708,9 +1742,9 @@ typedef struct TCGTemp {
     unsigned int temp_allocated:1;
 
     int64_t val;
-    struct TCGTemp *mem_base;//=tcg_init_ctx.temp[0];
-    intptr_t mem_offset;//=offsetof(CPUSW64State,xx);
-    const char *name;//=xx
+    struct TCGTemp *mem_base;//=tcg_init_ctx.temp[0];基地址
+    intptr_t mem_offset;//=offsetof(CPUSW64State,xx);偏移量
+    const char *name;//=xx，名称
 
     /* Pass-specific information that can be stored for a temporary.
        One word worth of integer data, and one pointer to data
@@ -1957,7 +1991,7 @@ void sw64_translate_init(void)
 {}
 ```
 
-> target/sw64/cpu.c:初始化TCGContext成员temp
+> target/sw64/translate.c:初始化TCGContext成员temp
 
 ```c
 void sw64_translate_init(void)
@@ -2040,6 +2074,18 @@ void sw64_translate_init(void)
 cpu_env 表示tcg_ctx->temps[0]相对于tcg_ctx的offset，tcg_ctx->temps[0].reg=TCG_AREG0,tcg_ctx->temps[0].kind=TEMP_FIXED, tcg_ctx->temps[0].name=env
 
 TCG_AREG0是架构相关的临时寄存器，在host执行tcg_qemu_tb_exec时使用TCG_AREG0 来访问翻译模式下的env。（aarch64: TCG_AREG0 =TCG_REG_X19,sw_64:TCG_AREG0=TCG_REG_X9）
+
+tcg_init_ctx.temps[0]
+
+在执行模式中用来指向env(CPUX86State)
+
+temps[1].mem_base指向temps[0]，
+
+也就是CPUX86State,
+
+temps[1].mem_offset表示cc_op在CPUX86State的偏移
+
+r9的值加上偏移量得到的地址取值就是各个汇编语言中寄存器r几的值
 
 ### QTAILQ，QTailQLink
 

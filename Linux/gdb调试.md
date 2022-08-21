@@ -12,7 +12,11 @@ gdb会先读取~/.gdbinit，再执行命令行选项，再读取./.gdbinit
 
 参数
 
-directory
+n ni
+
+s si
+
+directory 源代码目录
 
 ctags -R *
 
@@ -26,9 +30,15 @@ b 行号 设置断点
 
 info b 查看断点
 
+info(i) r 查看整数寄存器
+
+info(i) r a 查看所有寄存器
+
 del 数字 删除断点
 
-display/x 每次显示
+display /x 追踪值
+
+display /i  $pc 打印下一条汇编值
 
 focus cmd 聚焦到命令行
 
@@ -38,11 +48,11 @@ set
 
 ctrl +l 刷新
 
-bt        函数列表
-
-info b 显示断点
+bt        函数调用栈
 
 左侧(gdb)不显示，然后输入一个命令直接执行，不需要按enter，怎么实现?
+
+
 
 ```shell
 set breakpoint pending on # 挂起断点，未来生效

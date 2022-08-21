@@ -282,18 +282,41 @@ pc错了
 | gen_intermediate_code                      | 2、tb->pc出错                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | translator_loop                            | 1、tb->pc出错                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 
+ehdr->e_type=EXEC DYN
+
 动态
 
-第一回load_elf_image
+第一回load_elf_image 加载elf镜像
 
 经过for循环x86 loaddr变0 ，而sw变为0x120000，
 
-经过target_mmap x86 load_addr变为0x40000，sw变为0x12000
+经过target_mmap x86 load_addr变为0x40000，sw变为0x12000。
 
-swentry022e0没有加 x86加了
+2775:
 
-第二回load_elf_interp中的load_elf_image
+sw-exec edhr->e_entry=0x120000470 load_bias=0x0 info->entry=0x120000470
 
-ehdr->e_type
+x86-exec edhr->e_entry=0x401050 load_bias=0x0 info->entry=0x401050
 
-sw entry没有加       x86加了
+x86-dyn edhr->e_entry=0x1060 load_bias=0x4000000000 info->entry=0x4000001060
+
+第二回load_elf_interp中的load_elf_image 加载解释器
+
+2775:
+
+sw-exec edhr->e_entry=0x22e0 load_bias=0x4000802000 info->entry=0x40008042e0
+
+x86-exec edhr->e_entry=0x1090 load_bias=0x4000802000 info->entry=0x4000803090
+
+x86-dyn edhr->e_entry=0x1090 load_bias=0x4001808000 info->entry=0x4001809090
+
+4008042e0 
+4008042e4
+
+4008042f0
+
+400805358
+
+
+
+last_tb 1780

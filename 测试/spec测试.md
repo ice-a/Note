@@ -115,14 +115,13 @@ sudo apt-get download [package] 下载安装包
 
 dpkg -i --force-all            [package]    安装
 
-/var/lib/status 所有安装包的依赖包信息都在这里
+/var/lib/dpkg/status 所有安装包的依赖包信息都在这里
 
 备份cp status.bak，修改status，修改对应依赖包的版本号，以欺骗系统。
 
 ## 编译浮点类型题目时
 
 > 报错：
-> 
 > /usr/lib/ld:cannot find -lgfortran 
 > collect2:error:ld returned 1 exit status
 
@@ -135,10 +134,9 @@ ld -lgfortran --verbose 查看内部链接脚本，及其链接过程
 先安装libgfortran-dev-8和libgfortran5，再在/usr/local/lib 中做个软链接链接/usr/lib中的libgfortran.a
 
 > 问题：
-> 
 > Notice:Unusable path detected in build directory list file.
 > 
-> 找不到build directory，开始自动编译题目.
+> 描述：找不到build directory，开始自动编译题目.
 
 原因：tar包的时候加了--touch，导致它以为是新的。不能加--touch，时间戳不对就改时间戳。
 
@@ -148,4 +146,4 @@ ld -lgfortran --verbose 查看内部链接脚本，及其链接过程
 
 一个线程，export OMP_NUM_THREADS=1
 
-.f是什么文件？
+.f是什么文件？fortran语言

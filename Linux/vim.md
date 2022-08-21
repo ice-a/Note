@@ -2,9 +2,13 @@
 
 vim中不能复制就是因为环境没设置好，解决方法一：shift+鼠标左键方法二：set mouse=v
 
-拷贝：方法一：选中，shift+Insert ，方法二：选中右键复制，方法三：选中ctrl+shift+c
+外部拷贝：方法一：选中，shift+Insert ，方法二：选中右键复制，方法三：选中ctrl+shift+c
 
-搜索后noh取消高亮
+:set nonu 
+
+搜索后:noh取消高亮
+
+vim光标修改。
 
 > .vimrc
 
@@ -61,7 +65,7 @@ filetype indent on
 set showmatch
 "tab替换为4空格
 set ts=4 "set tabstop=4
-" 不要用空格代替制表符
+"不要用空格代替制表符
 set expandtab
 "为C程序提供自动缩进
 set smartindent
@@ -73,7 +77,7 @@ set ai!
 "编码设置
 set encoding=utf-8
 set guifont=monospace\ 14
-"set mouse=a
+"set mouse=a，
 set linebreak
 
 "搜索忽略大小写
@@ -86,7 +90,7 @@ set backspace=2
 "在insert模式下能用删除键进行删除
 set backspace=indent,eol,start
 
-" 历史记录数
+"历史记录数
 set history=400
 
 "共享剪贴板  
@@ -120,11 +124,12 @@ set helplang=cn
 "在编辑过程中，在右下角显示光标位置的状态行
 set ruler
 set nolinebreak             " 在单词中间断行
-" 在状态栏显示目前所执行的指令，未完成的指令片段亦会显示出来
+"在状态栏显示目前所执行的指令，未完成的指令片段亦会显示出来
 set showcmd                 
 set wrap                    " 自动换行显示
 
-set autoread                " 自动重新加载外部修改内容
+"自动重新加载外部修改内容
+set autoread                
 
 """"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 "命令行设置
@@ -148,9 +153,9 @@ set statusline=%F%m%r,%Y,%{&fileformat}\ \ \ ASCII=\%b,HEX=\%B\ \ \ %l,%c%V\ %p%
                             " %%    百分号
                             " %L    当前文件总行数
 
-" Line highlight 設此是游標整行會標註顏色
-" set cursorline
-" Column highlight 設此是遊標整列會標註顏色
+"Line highlight 設此是游標整行會標註顏色
+"set cursorline
+"Column highlight 設此是遊標整列會標註顏色
 "set cursorcolumn
 "highlight CursorLine cterm=none ctermbg=2 ctermfg=0
 let OmniCpp_DefaultNamespaces = ["std"]
@@ -185,7 +190,6 @@ imap <C-q> <Esc>
 
 
 "folding setting
-"
 nmap wv     <C-w>v
 nmap wc     <C-w>c
 nmap ws     <C-w>s
