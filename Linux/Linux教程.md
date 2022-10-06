@@ -47,15 +47,33 @@ sync
 
 ### 6.1.2 目录相关的命令
 
+cd （change directory，切换目录）
+
+在路径后面加/表示该目录下的
+
 ```shell
-cd directory
-cd ..           进入上一层目录
-cd /            进入根目录
-cd ~            进入当前用户的主文件目录
-cd ~username    进入user用户的主文件目录
+[相对路径/绝对路径]   # 目录
+.   ./               # 当前目录
+..  ../              # 上一层目录
+/                    # 根目录
+~  ~/                # 当前用户的主文件目录
+cd 空气              # 也是回到当前用户的主文件目录
+~username            # user用户的主文件目录
+-                    # 刚刚的目录
 ```
 
-pwd 查看路径
+pwd（查看当前/文件所在的目录）
+
+```shell
+pwd [file] # 查看当前/文件所在路径
+realpath file # 查看文件的完整路径
+```
+
+mkdir
+
+```shell
+mkdir
+```
 
 lsblk 查看所有硬件
 df -h 查看硬件使用率
@@ -149,19 +167,42 @@ id -u username # 查看是否存在该用户
 
 # 环境变量配置
 
-> 问题：终端字体一个颜色，文件夹和文件颜色不区分？且不显示当前你路径
+> 问题：终端字体一个颜色，各类型文件颜色不区分？且不显示当前所在的完整路径
 
 会不显示用户名，需要vim /etc/passwd ，将/bin/sh 改为/bin/bash
 
-拷贝其他用户的.bashrc文件到自己目录下，（其中有很多环境变量配置）然后手动执行source .bashrc，生效
+拷贝其他用户的.bashrc文件到自己目录下，（其中有很多环境变量配置）然后手动执行
 
-但是重登后失效，需要一个.profile文件添加自动运行.bashrc的配置信息
+```shell
+source .bashrc
+./.bashrc      # 权限不够？找不到命令？因为不是脚本？
+. .bashrc
+```
+
+，生效，但是重登后失效，需要一个.profile文件添加自动运行.bashrc的配置信息。
 
 .profile .bashrc .bash_profile的区别，见百度收藏
 
 .profile和.bash_profile是一个作用的，注意同时都有的话，貌似默认会执行.bash_profile
 
 bash_history bash_logout是干什么的？
+
+# ls（list directory contents）
+
+alias设置
+
+```shell
+#alias ll='ls -l'
+#alias la='ls -A'
+#alias l='ls -CF'
+alias l='ls -1F'                          # 行排列显示list 
+alias la='ls -1A'                         # 行排列显示全部文件list all
+alias ll='ls -hlF --time-style=long-iso'  # 显示详细信息list using a long listing format
+alias lal='ls -AhlF --time-style=long-iso'# 显示全部文件，隐藏文件,不包含.和..
+alias lh='ls -1d .!(|.)'                  # 只显示隐藏文件list hidden files 
+alias lhl='ls -dhlF --time-style=long-iso .!(|.)' # 只显示隐藏文件详细信息
+alias gdb='gdb -q'                         # gdb安静模式
+```
 
 # tar命令
 
@@ -171,7 +212,7 @@ bash_history bash_logout是干什么的？
 # 压缩 
 tar -czf 新建文件名.tar.gz 要被压缩的文件
 # 解压 
-tar -xf  要解压的文件 -C 目录
+tar -xf  要解压的文件 [-C 路径] # 默认解压在当前目录下，-C可以指定解压目录
 ```
 
 解压时出现is in the future时间戳不对，加上--touch，这是因为tar包来自未来，认为不对，需要把时间戳向后调整一天。文件由三种时间戳。
@@ -182,12 +223,28 @@ date -s "xxxx-xx-xx" # 调整本地时间戳
 
 尝试压缩后缀写成tar，但这样压缩包解压出来不是原来的文件。
 
+# unzip命令
+
+```shell
+unzip xxx.zip
+```
+
 # grep、cut命令
 
 cat /home/fei/cpu2006-alpha/result/CPU2006.037.log | grep "base ref ratio"  | cut -d " " -f3-6
 cat /home/fei/cpu2006-alpha/result/CPU2006.037.log | grep "base ref ratio"  | cut -d " " -f6
 cat /home/fei/cpu2006-alpha/result/CPU2006.037.log | grep "base ref ratio"  | cut -d " " -f6 | cut -d "," -f1
 cat /home/fei/cpu2006-alpha/result/CPU2006.037.log | grep "base ref ratio"  | cut -d " " -f6 | cut -d "," -f1 | cut -d "=" -f2
+
+```shell
+grep -rn 'xxx'  [path] # 默认为. 选取包含xxx的行，n显示行
+grep -v  'xxx'          # 去掉包含xxx的行
+grep --binary-files=without-match # 不匹配二进制文件
+```
+
+```shell
+cut -d '分隔符' -f 数字 # 以x为分隔符取第x段 
+```
 
 # apt命令
 
@@ -247,10 +304,11 @@ symbolic link to /usr/include/linux/stddef.h
 
 # locate、find、which命令
 
-全局查找
+find 查找文件名
 
 ```shell
-find / -name filename
+find [path ..] -name [filename] # 在指定目录下查找文件
+# 注意：find 在查找时，把目录也当成文件处理，会查找并处理目录名，并不是只处理文件名。
 ```
 
 查找文件信息
@@ -267,7 +325,53 @@ which 命令
 
 # 进程管理命令
 
+ps
+
 ```shell
 ps aux |grep
 ps -ef |grep
+```
+
+top
+
+nohup
+
+```shell
+nohup command &
+```
+
+# 环境变量
+
+```shell
+/etc/profile
+```
+
+为什么linux执行脚本要加./
+
+指在当前目录下寻找该文件，不加则会在PATH变量默认路径下寻找
+
+三种方法
+
+```shell
+./test.sh
+source test.sh # 不需要脚本具有执行权限
+```
+
+> https://segmentfault.com/a/1190000037797344?utm_source=tag-newest
+
+# 如何在linux终端一次性执行多个命令
+
+```shell
+# 分号(;)运算符
+# 分号(;)运算符允许你连续执行多个命令，而不管前面的每个命令是否成功
+
+# 逻辑与运算符(&&)
+# 如果希望第二个命令仅在第一个命令成功后运行，请使用逻辑与运算符分隔这些命令
+# 建议在大多数情况下使用逻辑与运算符，而不是分号运算符(;)
+
+# 逻辑or运算符(||)
+# 有时你可能希望在第一个命令不成功时执行第二个命令，为此，使用逻辑or运算符
+
+# 组合多个运算符
+# 可以在命令行上组合多个运算符
 ```

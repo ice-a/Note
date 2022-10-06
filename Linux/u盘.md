@@ -38,7 +38,7 @@ umount /dev/sda1
 ## md5检验
 
 ```shell
-md5sum .iso
+md5sum xxx.iso
 ```
 
 ## 格式问题
@@ -48,3 +48,13 @@ ntfs格式linux和windows通用的文件系统格式
 ext格式是linux的文件系统格式
 
 exfat是闪存文件系统
+
+> mount:/home/fei/spec2006: WARNING: device write-protected, mounted read-only.
+
+解决办法：
+
+```shell
+mkfs.ext4 spec2006.sio # 没用
+```
+
+这个镜像应该本身就是只读的。就是只读的，安装没问题。

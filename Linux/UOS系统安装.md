@@ -75,7 +75,7 @@ vim /etc/apt/sources.list
 apt update
 ```
 
-# 8.uos的问题
+# Issues
 
 > 问题：deepin未授权
 > 
@@ -101,10 +101,24 @@ apt install deepin-terminal
 
 修改默认程序终端为新的终端
 
-# 深度终端远程服务器管理
+## 深度终端deepin-terminal远程管理功能
 
-# win10升级
+添加服务器
+
+执行脚本命令添加到环境变量中.bashrc中
+
+# win10
+
+win10升级
 
 window10升级window11，查看本机没有打开tpm，进入bios没有打开tpm，
 
 怀疑是否要升级bios，或者就不支持tpm2.0
+
+## win10修改设备连接声音
+
+右键扬声器，选择程序事件
+
+win10 搜索开启高级
+
+## win10 搜索

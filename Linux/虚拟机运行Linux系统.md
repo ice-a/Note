@@ -43,7 +43,7 @@ ubuntu 16.04
 
 编译qemu
 
-linuxglibc版本太低，编译需要高的版本
+linux glibc版本太低，编译需要高的版本
 
 glibc更新到新版
 
@@ -91,44 +91,52 @@ gdb:no such file or directory
 > 
 > 原因：没有下载git
 
-# 9.U盘连接
+# Issues
+
+## U盘连接
 
 硬件USB控制器的连接USB兼容性选择USB3.0
 
 选择您希望将U盘连接到的位置 ，选择虚拟机
 
-# 10.关闭ubuntu中终端使用TAB键时BELL提示音
+## 关闭ubuntu中终端使用TAB键时BELL提示音
 
 ```shell
 sudo vim /etc/inputrc
 找到# set bell-style none 去掉注释
 ```
 
-# 11.软件仓库官方源更换为国内源
+## 软件仓库官方源更换为国内源
 
 > [ubuntu更换国内源_EmbededCoder的博客-CSDN博客_ubuntu换源](https://blog.csdn.net/u012308586/article/details/102953882)
 
-# 12.虚拟机共享主机VPN
+## 虚拟机使用代理
+
+### 方法一、共享主机VPN
 
 > [Ubuntu虚拟机共享主机VPN（适用于NAT或桥接） - 简书](https://www.jianshu.com/p/6c7abd4adc9b)
-> 
-> 或者直接在虚拟机中使用VPN
 
-# 13.时间同步
+### 方法二：直接在虚拟机中使用VPN
+
+## 时间同步
 
 虚拟机设置开启时间同步，系统时区改为上海
 
 setting->Date&Time
 
-# 14.屏幕锁定时间
+## 屏幕锁定时间
 
 setting->Privacy->Screen Lock
 
-# 15.终端分屏
+## 终端分屏
 
 > [Ubuntu终端多窗口分屏Terminator_一只积极向上的小咸鱼的博客-CSDN博客_ubuntu终端分屏](https://blog.csdn.net/m0_49448331/article/details/121909760)
 
-# 16.
+## install报错
 
 > fy@ubuntu:~/perfdbt$ sudo apt-get install gcc-aarch64-linux-gnu
 > E: dpkg was interrupted, you must manually run 'sudo dpkg --configure -a' to correct the problem. 
+
+# ubuntu中文输入
+
+安装中文输入法setting->Region & Language->Manage Installed Languages->Install/Remove Languages->勾选Chinese(simplified)，然后重启系统，Input Sources添加Chinese(Intelligent Pinyin)

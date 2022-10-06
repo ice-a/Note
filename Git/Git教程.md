@@ -177,6 +177,14 @@ $ git log -p 文件名  # 查看文件的历史修改
 $ git reset --hard 版本号
 ```
 
+## 3.7 比较内容
+
+暂存区vs工作区
+
+```shell
+git diff filename
+```
+
 # 第四章 Git分支操作
 
 ## 4.1 什么是分支
@@ -353,7 +361,7 @@ config
 ### 、查看提交记录
 
 ```git
-git log -p -online
+git log -p --oneline
 导出重定位 >
 git reflog
 git diff 
@@ -373,10 +381,22 @@ git diff
 
 见知乎收藏
 
-### Git bash终端中文文件名字显示不正常（显示为数字）
+### Git管理工具
+
+#### Git bash终端中文文件名字显示不正常（显示为数字）
 
 右键options，可以看，经过测试不需要设置，直接执行命令
 
 ```shell
 git config --global core.quotepath false
 ```
+
+#### Git Desktop
+
+#### SoureceTree
+
+总是显示完整控制台输出
+
+ssh客户端配置，配置ssh密钥和ssh客户端openssh
+
+代理服务器，还要勾选向Git/~~添加代理服务器信息，才能正常使用

@@ -77,7 +77,7 @@ accel/tcg/cpu-exec.c：cpu_exec()
 
  ![](qemu源码分析.assets/2022-07-14-10-30-30-image.png)
 
-## 1.设备创建
+# 1.设备创建
 
 ### type_init
 
@@ -133,9 +133,7 @@ type_init(sw64_cpu_register_types)
 
 后面通过查找这个hash表，就可以找到某个类型cpu的所有描述信息，并且可以找到这类cpu的初始化函数并执行
 
-## 2.执行模块
-
-### main
+# 2.main
 
 > linux-user/main.c:main
 
@@ -221,7 +219,7 @@ int main(int argc, char **argv)//usermode入口函数main
 }
 ```
 
-#### 设备初始化
+## 设备初始化
 
 ```c
 module_call_init(MODULE_INIT_QOM);
@@ -263,7 +261,7 @@ static void sw64_cpu_register_types(void)
 type_init(sw64_cpu_register_types) 
 ```
 
-#### ELF装载
+## ELF装载
 
 > linux-user/linuxload.c:loader_exec
 
@@ -315,7 +313,7 @@ loader_exec(int fdexec, const char *filename, char **argv, char **envp,
 }
 ```
 
-##### load_elf_binary
+### load_elf_binary
 
 > linux-user/elfload.c:load_elf_binary
 
@@ -332,7 +330,7 @@ load_elf_binary() {
 }
 ```
 
-##### load_elf_image
+### load_elf_image
 
 ```c
 static void load_elf_image(const char *image_name, int image_fd,
@@ -456,13 +454,39 @@ static void load_elf_image(const char *image_name, int image_fd,
     }
 ```
 
-#### CPU创建 ，cpu初始化
+## CPU创建 ，cpu初始化
 
 init machine     accel_commmom_init
 
 cpu_create        object_new   cpu     sw64_cpu_initfn    core3_init
 
-### cpu_loop
+## SW：异常类型
+
+```c
+enum {
+    EXCP_NONE,
+    EXCP_HALT,
+    EXCP_IIMAIL,
+    EXCP_OPCDEC,
+    EXCP_CALL_SYS,
+    EXCP_ARITH,
+    EXCP_UNALIGN,
+#ifdef SOFTMMU
+    EXCP_MMFAULT,
+#else
+    EXCP_DTBD,
+    EXCP_DTBS_U,
+    EXCP_DTBS_K,
+    EXCP_ITB_U,
+    EXCP_ITB_K,
+#endif
+    EXCP_CLK_INTERRUPT,
+    EXCP_DEV_INTERRUPT,
+    EXCP_SLAVE,
+};
+```
+
+## SW：cpu_loop
 
 > linux-user/sw64/cpu_loop.c:cpu_loop
 
@@ -479,11 +503,70 @@ void cpu_loop(CPUSW64State *env)
         trapnr = cpu_exec(cs);//翻译执行的主流程，返回一个int值，代表处理过程中遇到的异常
         cpu_exec_end(cs);//设置退出翻译执行时的相关参数
         process_queued_cpu_work(cs);//多线程状态下，处理翻译执行过程中其他线程插入的任务
-    ...
+      switch (trapnr) {//处理系统调用产生的异常
+    case EXCP_OPCDEC://非法的操作码
+            cpu_abort(cs, "ILLEGAL SW64 insn at line %d!", __LINE__);
+    case EXCP_CALL_SYS://正常处理
+        switch (env->error_code) {
+            case 0x83:
+                /* CALLSYS */
+                trapnr = env->ir[IDX_V0];
+                sysret = do_syscall(env, trapnr,
+                                    env->ir[IDX_A0], env->ir[IDX_A1],
+                                    env->ir[IDX_A2], env->ir[IDX_A3],
+                                    env->ir[IDX_A4], env->ir[IDX_A5],
+                                    0, 0);
+                if (sysret == -TARGET_ERESTARTSYS) {
+                    env->pc -= 4;
+                    break;
+                }
+                if (sysret == -TARGET_QEMU_ESIGRETURN) {
+                    break;
+                }
+                /* Syscall writes 0 to V0 to bypass error check, similar
+                   to how this is handled internal to Linux kernel.
+                   (Ab)use trapnr temporarily as boolean indicating error. */
+                trapnr = (env->ir[IDX_V0] != 0 && sysret < 0);
+                env->ir[IDX_V0] = (trapnr ? -sysret : sysret);
+                env->ir[IDX_A3] = trapnr;
+                break;
+            default:
+                printf("UNDO sys_call %lx\n", env->error_code);
+                exit(-1);
+            }
+            break;
+        case EXCP_MMFAULT:
+            info.si_signo = TARGET_SIGSEGV;
+            info.si_errno = 0;
+            info.si_code = (page_get_flags(env->trap_arg0) & PAGE_VALID
+                            ? TARGET_SEGV_ACCERR : TARGET_SEGV_MAPERR);
+            info._sifields._sigfault._addr = env->trap_arg0;
+            queue_signal(env, info.si_signo, QEMU_SI_FAULT, &info);
+            break;
+        case EXCP_ARITH:
+            info.si_signo = TARGET_SIGFPE;
+            info.si_errno = 0;
+            info.si_code = TARGET_FPE_FLTINV;
+            info._sifields._sigfault._addr = env->pc;
+            queue_signal(env, info.si_signo, QEMU_SI_FAULT, &info);
+            break;
+        case EXCP_INTERRUPT:
+            /* just indicate that signals should be handled asap */
+            break;
+        default:
+            cpu_abort(cs, "UNDO");
+        }
+        process_pending_signals (env);
+
+        /* Most of the traps imply a transition through HMcode, which
+           implies an REI instruction has been executed.  Which means
+           that RX and LOCK_ADDR should be cleared.  But there are a
+           few exceptions for traps internal to QEMU.  */
+        }
 }
 ```
 
-### cpu_exec
+## cpu_exec
 
 > accel/tcg/cpu-exec.c:cpu_exec
 
@@ -554,14 +637,139 @@ static inline TranslationBlock *tb_find(CPUState *cpu,
     }
 #endif
     /* See if we can patch the calling TB. */
-    if (last_tb) {
+    if (last_tb) {// 链接tb块
         tb_add_jump(last_tb, tb_exit, tb);
     }
     return tb;
 }
 ```
 
-### 函数调用关系
+### cpu_loop_exec_tb
+
+> accel/tcg/cpu-exec.c:cpu_loop_exec_tb
+
+```c
+static inline void cpu_loop_exec_tb(CPUState *cpu, TranslationBlock *tb,
+                                    TranslationBlock **last_tb, int *tb_exit)
+{
+    int32_t insns_left;
+
+    trace_exec_tb(tb, tb->pc);//追踪tb起始地址，可以打印
+    tb = cpu_tb_exec(cpu, tb, tb_exit);
+    if (*tb_exit != TB_EXIT_REQUESTED) {
+        *last_tb = tb;
+        return;
+    }
+
+    *last_tb = NULL;
+    insns_left = qatomic_read(&cpu_neg(cpu)->icount_decr.u32);
+    if (insns_left < 0) {
+        /* Something asked us to stop executing chained TBs; just
+         * continue round the main loop. Whatever requested the exit
+         * will also have set something else (eg exit_request or
+         * interrupt_request) which will be handled by
+         * cpu_handle_interrupt.  cpu_handle_interrupt will also
+         * clear cpu->icount_decr.u16.high.
+         */
+        return;
+    }
+
+    /* Instruction counter expired.  */
+    assert(icount_enabled());
+#ifndef CONFIG_USER_ONLY
+    /* Ensure global icount has gone forward */
+    icount_update(cpu);
+    /* Refill decrementer and continue execution.  */
+    insns_left = MIN(CF_COUNT_MASK, cpu->icount_budget);
+    cpu_neg(cpu)->icount_decr.u16.low = insns_left;
+    cpu->icount_extra = cpu->icount_budget - insns_left;
+
+    /*
+     * If the next tb has more instructions than we have left to
+     * execute we need to ensure we find/generate a TB with exactly
+     * insns_left instructions in it.
+     */
+    if (!cpu->icount_extra && insns_left > 0 && insns_left < tb->icount)  {
+        cpu->cflags_next_tb = (tb->cflags & ~CF
+```
+
+### cpu_tb_exec
+
+> accel/tcg/cpu-exec.c:cpu_tb_exec
+
+```c
+static inline TranslationBlock * QEMU_DISABLE_CFI
+cpu_tb_exec(CPUState *cpu, TranslationBlock *itb, int *tb_exit)
+{
+    CPUArchState *env = cpu->env_ptr;
+    uintptr_t ret;
+    TranslationBlock *last_tb;
+    const void *tb_ptr = itb->tc.ptr;
+
+    qemu_log_mask_and_addr(CPU_LOG_EXEC, itb->pc,
+                           "Trace %d: %p ["
+                           TARGET_FMT_lx "/" TARGET_FMT_lx "/%#x] %s\n",
+                           cpu->cpu_index, itb->tc.ptr,
+                           itb->cs_base, itb->pc, itb->flags,
+                           lookup_symbol(itb->pc));
+
+#if defined(DEBUG_DISAS)
+    if (qemu_loglevel_mask(CPU_LOG_TB_CPU)
+        && qemu_log_in_addr_range(itb->pc)) {
+        FILE *logfile = qemu_log_lock();
+        int flags = 0;
+        if (qemu_loglevel_mask(CPU_LOG_TB_FPU)) {
+            flags |= CPU_DUMP_FPU;
+        }
+#if defined(TARGET_I386)
+        flags |= CPU_DUMP_CCOP;
+#endif
+        log_cpu_state(cpu, flags);
+        qemu_log_unlock(logfile);
+    }
+#endif /* DEBUG_DISAS */
+
+    qemu_thread_jit_execute();
+    //tcg_qemu_tb_exec_num++; 
+    //printf("tcg_qemu_tb_exec=%d\n",tcg_qemu_tb_exec_num); 打印即将要执行的tb块号
+    ret = tcg_qemu_tb_exec(env, tb_ptr);
+    cpu->can_do_io = 1;
+    /*
+     * TODO: Delay swapping back to the read-write region of the TB
+     * until we actually need to modify the TB.  The read-only copy,
+     * coming from the rx region, shares the same host TLB entry as
+     * the code that executed the exit_tb opcode that arrived here.
+     * If we insist on touching both the RX and the RW pages, we
+     * double the host TLB pressure.
+     */
+    last_tb = tcg_splitwx_to_rw((void *)(ret & ~TB_EXIT_MASK));
+    *tb_exit = ret & TB_EXIT_MASK;
+
+    trace_exec_tb_exit(last_tb, *tb_exit);
+
+    if (*tb_exit > TB_EXIT_IDX1) {
+        /* We didn't start executing this TB (eg because the instruction
+         * counter hit zero); we must restore the guest PC to the address
+         * of the start of the TB.
+         */
+        CPUClass *cc = CPU_GET_CLASS(cpu);
+        qemu_log_mask_and_addr(CPU_LOG_EXEC, last_tb->pc,
+                               "Stopped execution of TB chain before %p ["
+                               TARGET_FMT_lx "] %s\n",
+                               last_tb->tc.ptr, last_tb->pc,
+                               lookup_symbol(last_tb->pc));
+        if (cc->tcg_ops->synchronize_from_tb) {
+            cc->tcg_ops->synchronize_from_tb(cpu, last_tb);
+        } else {
+            assert(cc->set_pc);
+            cc->set_pc(cpu, last_tb->pc);
+        }
+    }
+    return last_tb;
+}
+```
+
+## 函数调用关系
 
 main->cpu_loop->cpu_exec
 
@@ -583,7 +791,7 @@ tcg_tb_alloc()会在TCGContext中分配空间,并执行gen_intermediate_code()�
 > 
 > OP:前两行为gen_tb_start内容，后两行为gen_tb_end内容
 
-### 全局变量tcg_ctx，初始化
+## 全局变量tcg_ctx，初始化
 
 用户级tcg_ctx = &tcg_init_ctx;
 
@@ -608,7 +816,7 @@ void tcg_register_thread(void)//用户模式初始化tcg_ctx，经过层级调�
 
 用户模式下是单线程
 
-### CPU,CPUState,CPUSW64State
+## CPU,CPUState,CPUSW64State
 
 要定义所有CPU的基类，需要定义CPU的类的数据结构和CPU的对象的数据结构，然后给对应的TypeInfo中的函数指针赋值即可。其中CPU类的数据结构名为CPUClass、CPU对象的数据结构名为CPUState，它们被定义在include/qom/cpu.h中，而对应的TypeInfo的赋值工作则在qom/cpu.c中进行。这里只说明CPUClass、CPUState数据结构。
 
@@ -726,7 +934,7 @@ struct CPUState {
 };//thread_cpu
 ```
 
-### code_gen_buffer
+## code_gen_buffer
 
 > include/tcg/tcg.h:TCGContext
 
@@ -807,7 +1015,7 @@ static bool alloc_code_gen_buffer_anon(size_t size, int prot,
 
 这片内存可以采用静态分配方式，也可以采用动态分配方式，前者将code_gen_buffer指向静态分配的空间，后者将code_gen_buffer指向动态分配的空间。编译时由宏USE_STATIC_CODE_GEN_BUFFER控制选用那种方式。
 
-### TranslationBlock
+## TranslationBlock
 
 > include/exec/exec-all.h:TranslationBlock
 > 
@@ -884,7 +1092,7 @@ struct TranslationBlock {
 };
 ```
 
-#### tb_tc
+### tb_tc
 
 > include/exec/exec-all.h:tb_tc
 > 
@@ -906,9 +1114,9 @@ struct tb_tc {
 };
 ```
 
-## 3.前端
+# 3.SW前端
 
-### DisasContext ，DisasContextBase
+## DisasContext ，DisasContextBase
 
 > target/sw64/translate.h:DisasContext
 
@@ -920,7 +1128,7 @@ struct DisasContext {
     uint32_t tbflags;
 
     /* The set of registers active in the current context.  */
-    TCGv *ir;//当前活跃的寄存器集合
+    TCGv *ir;//当前活跃的寄存器集合，虚拟内存单元模拟寄存器
 
     /* Accel: Temporaries for $31 and $f31 as source and destination.  */
     TCGv zero;
@@ -943,7 +1151,9 @@ typedef struct DisasContextBase {
 } DisasContextBase;
 ```
 
-### tb_gen_code()
+## tb_gen_code
+
+> accel/tcg/cpu-exec.c
 
 ```c
 TranslationBlock *tb_gen_code(CPUState *cpu,
@@ -1116,7 +1326,7 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
         }
 
         /* Dump header and the first instruction */
-        qemu_log("OUT: [size=%d]\n", gen_code_size);
+        qemu_log("OUT: [size=%d]\n", gen_code_size);//-d out
         qemu_log("  -- guest addr 0x" TARGET_FMT_lx " + tb prologue\n",
                  tcg_ctx->gen_insn_data[insn][0]);
         chunk_start = tcg_ctx->gen_insn_end_off[insn];
@@ -1214,11 +1424,13 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
 }
 ```
 
-### gen_intermediate_code()
+## gen_intermediate_code()
 
 声明DisasContext结构体变量dc，调用transloop_loop()把guest code翻译为中间代码。
 
 执行函数
+
+> target/sw64/translate.c
 
 ```c
 void gen_intermediate_code(CPUState* cpu, TranslationBlock* tb, int max_insns)
@@ -1231,7 +1443,9 @@ void gen_intermediate_code(CPUState* cpu, TranslationBlock* tb, int max_insns)
 
 程序计数器pc =代码段寄存器cs+指令指针寄存器EIP（段地址：偏移地址）
 
-### TranslatorOps
+## TranslatorOps
+
+> target/sw64/translate.c
 
 ```c
 static const TranslatorOps sw64_trans_ops = {
@@ -1244,7 +1458,7 @@ static const TranslatorOps sw64_trans_ops = {
 };
 ```
 
-### translator_loop()
+## translator_loop
 
 void translator_loop(const TranslatorOps *ops, DisasContextBase *db,CPUState *cpu, TranslationBlock *tb, int max_insns)
 
@@ -1275,6 +1489,8 @@ static void sw64 _tr_init_disas_context(DisasContextBase*dcbase, CPUState *cpu)
 DisasContext*tcg_ctx 反汇编上下文，全局变量
 
 发现没有定义TARGET_INSN_START_WORDS，x86有定义
+
+> accel/tcg/translator.c
 
 ```c
 void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
@@ -1397,7 +1613,9 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
 }
 ```
 
-#### sw64_tr_translate_insn
+### sw64_tr_translate_insn
+
+> target/sw64/translate.c
 
 ```c
 static void sw64_tr_translate_insn(DisasContextBase *dcbase, CPUState *cpu)
@@ -1416,7 +1634,9 @@ static void sw64_tr_translate_insn(DisasContextBase *dcbase, CPUState *cpu)
 }
 ```
 
-#### cpu_ldl_code
+### cpu_ldl_code
+
+> accel/tcg/user-exec.c
 
 ```c
 uint32_t cpu_ldl_code(CPUArchState *env, abi_ptr ptr)
@@ -1432,7 +1652,9 @@ uint32_t cpu_ldl_code(CPUArchState *env, abi_ptr ptr)
 
 动态翻译基本思想把一条target指令切分成若干条微操作，每条微操作由一段简单的C代码来实现，运行时通过一个动态代码生成器把这些微操作组合成一个函数，最后执行这个函数。
 
-#### translate_one()
+## translate_one
+
+> target/sw64/translate.c
 
 反汇编
 
@@ -1440,7 +1662,7 @@ uint32_t cpu_ldl_code(CPUArchState *env, abi_ptr ptr)
 DisasJumpType translate_one(DisasContextBase *dcbase, uint32_t insn,CPUState *cpu)
 {
     int32_t disp5, disp8, disp12, disp13, disp16, disp21, disp26 __attribute__((unused));//偏移量disp
-    uint8_t opc, ra, rb, rc, rd;//指令码opc,寄存器域rx
+    uint8_t opc, ra, rb, rc, rd;//操作码opc,寄存器域rx（寄存器编号）
     uint16_t fn3, fn4, fn6, fn8, fn11;//功能域fn
     int32_t i;
     TCGv va, vb, vc, vd;
@@ -1461,10 +1683,14 @@ DisasJumpType translate_one(DisasContextBase *dcbase, uint32_t insn,CPUState *cp
     ....
 
     switch (opc) {
+    case 0x00:
+        /* SYS_CALL */
+        ret = gen_sys_call(ctx, insn & 0x1ffffff);
+        break;
         ....
-        case 0x04:
+    case 0x04:
         /* BR */
-        case 0x05:
+    case 0x05:
         /* BSR */
         ret = gen_bdirect(ctx, ra, disp21);
         break;
@@ -1486,11 +1712,11 @@ static inline uint32_t extract32(uint32_t value, int start, int length)
 }
 ```
 
-声明翻译指令所有可能用到的指令码opcode，偏移量disp，功能域fn，寄存器域rx等。并调用提取函数extract()初始化当前正在翻译的指令的指令码opcode，偏移量disp，功能域fn，寄存器域rx。
+声明翻译指令所有可能用到的操作码opcode，偏移量disp，功能域fn，寄存器域rx等。并调用提取函数extract()初始化当前正在翻译的指令的操作码opcode，偏移量disp，功能域fn，寄存器域rx。
 
 声明TCG微操作，跳转类型ret，获取dc首地址赋值给ctx，并在接下来使用ctx代替。
 
-进入switch case结构，根据指令码opcode的值进入对应的翻译流程。
+进入switch case结构，根据操作码opcode进入对应的翻译流程。
 
 第一条指令:无条件转移指令
 
@@ -1514,6 +1740,8 @@ opc=100                                                                         
 ra=11101                                                                                  0x1d
 
 disp21=                                                                                     0x0
+
+## gen_bdirect
 
 ```c
 static DisasJumpType gen_bdirect(DisasContext *ctx, int ra, int32_t disp)
@@ -1591,19 +1819,67 @@ static inline void tcg_gen_op2_i64(TCGOpcode opc, TCGv_i64 a1, TCGv_i64 a2)
 include/tcg/tcg-op.h
 ```
 
-## 4.TCG
+## 系统调用指令
 
-### 参考资料
+```c
+    switch (opc) {
+    case 0x00://系统调用指令
+        /* SYS_CALL */
+        //[25:0]，第26位不管，insn&1ffffff结果是取指令低25位的功能码，与1与表示保留自己，与0与表示置为0       
+        ret = gen_sys_call(ctx, insn & 0x1ffffff);# 
+        break;
+    }
+```
 
-#### TCG指令参考
+```c
+static DisasJumpType gen_sys_call(DisasContext *ctx, int syscode)
+{
+    if (syscode >= 0x80 && syscode <= 0xbf) {//128~191号
+        switch (syscode) {
+        case 0x86://__NR_shutdown  134
+            /* IMB */
+            /* No-op inside QEMU */
+            break;
+#ifdef CONFIG_USER_ONLY//?
+        case 0x9E://__NR_osf_nfssvc 158
+            /* RDUNIQUE */
+            tcg_gen_ld_i64(ctx->ir[IDX_V0], cpu_env,
+                           offsetof(CPUSW64State, unique));
+            break;
+        case 0x9F://__NR_osf_getdirentries 159
+            /* WRUNIQUE */
+            tcg_gen_st_i64(ctx->ir[IDX_A0], cpu_env,
+                           offsetof(CPUSW64State, unique));
+            break;
+#endif
+        default:
+            goto do_sys_call;//执行系统调用
+        }
+        return DISAS_NEXT;
+    }
+do_sys_call:
+#ifdef CONFIG_USER_ONLY
+    return gen_excp(ctx, EXCP_CALL_SYS, syscode);//产生用于系统调用的异常类型EXCP_CALL_SYS
+#else
+    tcg_gen_movi_i64(cpu_hm_ir[23], ctx->base.pc_next);
+    return gen_excp(ctx, EXCP_CALL_SYS, syscode);
+#endif
+}
+```
+
+# 4.TCG
+
+## 参考资料
+
+### TCG中间码参考
 
 > tcg/README
 
-#### SW整数寄存器的别名
+### SW整数寄存器及别名
 
 > /usr/include/sw_64/regdef.h
 
-#### TCG寄存器
+### TCG寄存器
 
 ```c
 typedef enum {
@@ -1615,7 +1891,7 @@ typedef enum {
     TCG_REG_X20, TCG_REG_X21, TCG_REG_X22, TCG_REG_X23,
     TCG_REG_X24, TCG_REG_X25, TCG_REG_X26, TCG_REG_X27,
     TCG_REG_X28, TCG_REG_X29, TCG_REG_X30, TCG_REG_X31, 
-
+//32个整型
     TCG_REG_F0=32, TCG_REG_F1, TCG_REG_F2, TCG_REG_F3,
     TCG_REG_F4, TCG_REG_F5, TCG_REG_F6, TCG_REG_F7,
     TCG_REG_F8, TCG_REG_F9, TCG_REG_F10, TCG_REG_F11,
@@ -1624,9 +1900,9 @@ typedef enum {
     TCG_REG_F20, TCG_REG_F21, TCG_REG_F22, TCG_REG_F23,
     TCG_REG_F24, TCG_REG_F25, TCG_REG_F26, TCG_REG_F27,
     TCG_REG_F28, TCG_REG_F29, TCG_REG_F30, TCG_REG_F31,
-
+//32个浮点
     /* Aliases.  */
-    TCG_REG_FP = TCG_REG_X15,
+    TCG_REG_FP = TCG_REG_X15,//特殊的
     TCG_REG_RA = TCG_REG_X26,
     TCG_REG_GP = TCG_REG_X29,
     TCG_REG_SP = TCG_REG_X30,
@@ -1635,11 +1911,15 @@ typedef enum {
 } TCGReg;
 ```
 
-#### 系统调用号表
+### 系统调用
 
-> /usr/include/asm/unistd.h
+> /usr/include/asm/unistd.h：sw系统调用号表
+> 
+> linux-user/syscall.c：qemu处理系统相关
+> 
+> linux-user/host/sw_64/safe-syscall.inc.S qemu翻译到系统调用有时会调用这个函数，执行汇编
 
-### TCGOpcode
+## TCGOpcode
 
 > include/tcg/tcg.h
 
@@ -1652,7 +1932,7 @@ typedef enum TCGOpcode {//枚举所有TCG操作
 } TCGOpcode;
 ```
 
-### TCGOp
+## TCGOp
 
 TCG数据结构，定义操作队列节点
 
@@ -1683,7 +1963,7 @@ typedef struct TCGOp {
 } TCGOp;
 ```
 
-### TCGContext
+## TCGContext
 
 ```c
 struct TCGContext {
@@ -1726,7 +2006,7 @@ struct TCGContext {
 }
 ```
 
-### TCGTemp
+## TCGTemp
 
 ```c
 typedef struct TCGTemp {
@@ -1754,7 +2034,7 @@ typedef struct TCGTemp {
 } TCGTemp;
 ```
 
-### TCGOpDef，tcg_op_defs
+## TCGOpDef，tcg_op_defs
 
 > include/tcg/tcg.h
 
@@ -1788,7 +2068,7 @@ TCGOpDef tcg_op_defs[] = {//初始化TCG操作
 const size_t tcg_op_defs_max = ARRAY_SIZE(tcg_op_defs);//TCG操作个数
 ```
 
-### TCG初始化
+## TCG初始化
 
 > accel/tcg/tcg-all.c
 
@@ -1842,7 +2122,7 @@ static void cpu_gen_init(void)
 }
 ```
 
-#### tcg_context_init
+### tcg_context_init
 
 > tcg/tcg.c:tcg_context_init初始化TCGContext，
 
@@ -2087,7 +2367,7 @@ temps[1].mem_offset表示cc_op在CPUX86State的偏移
 
 r9的值加上偏移量得到的地址取值就是各个汇编语言中寄存器r几的值
 
-### QTAILQ，QTailQLink
+## QTAILQ，QTailQLink
 
 > include/qemu/queue.h：QTAILQ数据结构
 
@@ -2128,7 +2408,7 @@ QTAILQ_INSERT_TAIL(&tcg_ctx->ops, op, link);
 双向链表，*tqe_next没用上，实际用只在队尾，相当于队列。*/
 ```
 
-## PPT
+# PPT
 
 做PPT重点
 
@@ -2140,4 +2420,14 @@ Elf文件存在哪儿，中间代码放在哪儿，翻译后的host代码放在�
 
 重点，指令提取的图来一张，过程说明一下
 
-指令插入，操作链表，结构可以讲一下，
+指令插入，操作链表，结构可以讲一下。
+
+# 日志
+
+qemu-sw64 -d in_asm,op,out_asm -cpu core3 hello > log 2>&1
+
+in_asm,op,out_asm,exec
+
+单步调试 -singlestep，每一个tb中就只有一条汇编代码，同时有很多tb没显示有汇编代码，可能是没有翻译，直接执行的？c 多少，在gdb ./hello-sw-dynamic中对应si 多少
+
+exec打印出每个tb的首地址，方便对应。

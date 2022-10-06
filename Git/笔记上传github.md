@@ -86,3 +86,13 @@ git clone https://github.com/skywind3000/asyncrun.vim.git --config https.proxy=h
 ```
 
 注意：代理只对http、https、sock5协议有效，对ssh协议无效
+
+```shell
+[user]
+    name = feiyang
+    email = sorachyan.fy@gmail.com
+[http]
+    proxy = http://192.168.47.1:7890
+[https]
+    proxy = http://192.168.47.1:7890
+```

@@ -1,16 +1,152 @@
 ## 环境设置
 
-vim中不能复制就是因为环境没设置好，解决方法一：shift+鼠标左键方法二：set mouse=v
+vim中选中右键没有复制是因为环境没设置好，解决方法一：shift+鼠标左键 方法二：set mouse=v
 
 外部拷贝：方法一：选中，shift+Insert ，方法二：选中右键复制，方法三：选中ctrl+shift+c
 
-:set nonu 
+取消行号`:set non :set nonumber`
 
-搜索后:noh取消高亮
+搜索后`:noh :nohlsearch`取消高亮
 
 vim光标修改。
 
-> .vimrc
+ctags ：`ctags -R *`
+
+`:qa` 同时退出所有
+
+https://qa.1r1g.com/sf/ask/1959636591/
+
+文本复制到vim格式错乱，使用`:set paste`再进入插入模式
+
+粗光标永远看左侧
+
+# 自用.vimrc
+
+```vim
+"显示行号
+set nu 
+"set nu=set number
+"set nonu=set nonumber
+"进入paste模式，vim不会启动自动缩进，而只是纯拷贝粘贴
+set paste
+
+"语法高亮度显示
+"syntax enable 只在当前文件中有效
+syntax on "对所有缓冲区中的文件有效
+
+"高亮显示匹配括号
+set showmatch
+
+"默认无备份
+set nobackup
+set nowritebackup
+
+"关闭vi兼容模式，避免以前版本的一些bug和局限
+set nocp "set nocompatible
+
+"开启相关插件
+"侦测文件类型
+filetype on
+"载入文件类型插件
+filetype plugin on
+"为特定文件类型载入相关缩进文件
+filetype indent on
+
+"match Todo /SW_64\|luoqiaoling\|mips64\|sw_64/
+
+"制表符tab显示宽度为4
+set ts=4 "set tabstop=4
+"用空格替换制表符tab
+set expandtab
+
+"为C程序提供自动缩进
+set smartindent
+set shiftwidth=4
+"自动缩进，换行时，缩进量与上一行对齐
+set autoindent
+
+"激活鼠标的使用
+set mouse=v
+set selection=exclusive
+set selectmode=mouse,key
+
+"设置编码格式
+set encoding=utf-8 " 设置 vim 展示文本时的编码格式
+set fileencoding=utf-8    " 设置 vim 写入文件时的编码格式
+"语言设置
+set langmenu=zh_CN.UTF-8
+"显示中文帮助
+set helplang=cn
+
+"设置字体 
+set guifont=monospace\ 14
+
+"自动换行显示
+set wrap
+"整词换行             
+set linebreak
+
+"搜索忽略大小写
+set ignorecase
+"高亮显示所有搜索到的内容，后面用map映射快捷键来方便关闭当前搜索的高亮
+set hlsearch
+"光标立刻跳转到搜索的内容
+set incsearch
+"搜索到最后匹配的位置后，再次搜索不回到第一个匹配处
+set nowrapscan
+
+
+"在insert模式下能用删除键进行删除
+set backspace=indent,eol,start
+set backspace=2
+
+"历史记录数
+set history=400
+
+"共享剪贴板  
+set clipboard=unnamed "+=？
+
+"自动补全
+inoremap ' ''<ESC>i
+inoremap " ""<ESC>i
+inoremap ( ()<ESC>i
+inoremap [ [<ESC>i
+inoremap < <><ESC>i
+inoremap { {<CR>}<ESC>O
+"设置跳出自动补全的括号
+func SkipPair()
+    if getline('.')[col('.') - 1] == '>' || getline('.')[col('.') - 1] == ')' || getline('.')[col('.') - 1] == ']' || getline('.')[col('.') - 1] == '"' || getline('.')[col('.') - 1] == "'" || getline('.')[col('.') - 1] == '}'
+        return "\<ESC>la"
+    else
+        return "\t"
+    endif
+endfunc
+"将tab键绑定为跳出括号
+inoremap <TAB> <c-r>=SkipPair()<CR>
+
+"打开文件类型检测, 加了这句才可以用智能补全
+set completeopt=longest,menu
+
+"在编辑过程中，在右下角显示光标位置的状态行
+set ruler
+set nolinebreak             "在单词中间断行
+"在状态栏显示目前所执行的指令，未完成的指令片段亦会显示出来
+set showcmd                 
+
+"设置文件在外部被修改时，自动更新该文件
+set autoread                
+
+"恢复上次文件打开位置 
+set viminfo='10,\"100,:20,n~/.viminfo
+au BufReadPost * if line("'\"") > 0|if line("'\"") <= line("$")|exe("norm '\"")|else|exe "norm $"|endif|endif
+
+
+""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+"vim-plug设置
+""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+```
+
+# .vimrc
 
 ```vim
 "配色
@@ -37,100 +173,121 @@ endif " exists(...)
 "set background=dark
 
 "显示行号
-set nu "set nummber
+set nu 
+"set nu=set number
+"set nonu=set nonumber
+"进入paste模式，vim不会启动自动缩进，而只是纯拷贝粘贴
 set paste
 
 "语法高亮度显示
-syntax enable
-syntax on
+"syntax enable 只在当前文件中有效
+syntax on "对所有缓冲区中的文件有效
 
-"显示匹配括号
+"高亮显示匹配括号
 set showmatch
 
 "默认无备份
 set nobackup
 set nowritebackup
 
-"去掉讨厌的有关vi一致性模式，避免以前版本的一些bug和局限
+"关闭vi兼容模式，避免以前版本的一些bug和局限
 set nocp "set nocompatible
 
-"检测文件的类型 开启codesnip
+"开启相关插件
+"侦测文件类型
 filetype on
+"载入文件类型插件
 filetype plugin on
+"为特定文件类型载入相关缩进文件
 filetype indent on
 
 "match Todo /SW_64\|luoqiaoling\|mips64\|sw_64/
 
-"高亮显示匹配的括号
-set showmatch
-"tab替换为4空格
+"制表符tab显示宽度为4
 set ts=4 "set tabstop=4
-"不要用空格代替制表符
+"用空格替换制表符tab
 set expandtab
+
 "为C程序提供自动缩进
 set smartindent
-set shiftwidth=8
-"自动缩进
+set shiftwidth=4
+"自动缩进，换行时，缩进量与上一行对齐
 set autoindent
-set ai!
 
-"编码设置
-set encoding=utf-8
-set guifont=monospace\ 14
-"set mouse=a，
-set linebreak
+"激活鼠标的使用
+set mouse=a
+set selection=exclusive
+set selectmode=mouse,key
 
-"搜索忽略大小写
-set ignorecase
-"搜索逐字符高亮
-set hlsearch
-set incsearch
-
-set backspace=2
-"在insert模式下能用删除键进行删除
-set backspace=indent,eol,start
-
-"历史记录数
-set history=400
-
-"共享剪贴板  
-set clipboard=unnamed
-
-"自动补全
-:inoremap ( ()i
-:inoremap ) =ClosePair(')')
-:inoremap { {}O
-:inoremap } =ClosePair('}')
-:inoremap [ []i
-:inoremap ] =ClosePair(']')
-:inoremap " ""i
-:inoremap ' ''i
-function! ClosePair(char)
-    if getline('.')[col('.') - 1] == a:char
-        return "\"
-    else
-        return a:char
-    endif
-endfunction
-filetype plugin indent on 
-"打开文件类型检测, 加了这句才可以用智能补全
-set completeopt=longest,menu
-
+"设置编码格式
+set encoding=utf-8 " 设置 vim 展示文本时的编码格式
+set fileencoding=utf-8    " 设置 vim 写入文件时的编码格式
 "语言设置
 set langmenu=zh_CN.UTF-8
 "显示中文帮助
 set helplang=cn
 
+"设置字体 
+set guifont=monospace\ 14
+
+"自动换行显示
+set wrap
+"整词换行             
+set linebreak
+
+"搜索忽略大小写
+set ignorecase
+"高亮显示所有搜索到的内容，后面用map映射快捷键来方便关闭当前搜索的高亮
+set hlsearch
+"光标立刻跳转到搜索的内容
+set incsearch
+"搜索到最后匹配的位置后，再次搜索不回到第一个匹配处
+set nowrapscan
+
+
+"在insert模式下能用删除键进行删除
+set backspace=indent,eol,start
+set backspace=2
+
+"历史记录数
+set history=400
+
+"共享剪贴板  
+set clipboard=unnamed +=？
+
+"自动补全
+inoremap ' ''<ESC>i
+inoremap " ""<ESC>i
+inoremap ( ()<ESC>i
+inoremap [ [<ESC>i
+inoremap < <><ESC>i
+inoremap { {<CR>}<ESC>O
+"设置跳出自动补全的括号
+func SkipPair()
+    if getline('.')[col('.') - 1] == '>' || getline('.')[col('.') - 1] == ')' || getline('.')[col('.') - 1] == ']' || getline('.')[col('.') - 1] == '"' || getline('.')[col('.') - 1] == "'" || getline('.')[col('.') - 1] == '}'
+        return "\<ESC>la"
+    else
+        return "\t"
+    endif
+endfunc
+"将tab键绑定为跳出括号
+inoremap <TAB> <c-r>=SkipPair()<CR>
+
+"打开文件类型检测, 加了这句才可以用智能补全
+set completeopt=longest,menu
+
 "在编辑过程中，在右下角显示光标位置的状态行
 set ruler
-set nolinebreak             " 在单词中间断行
+set nolinebreak             "在单词中间断行
 "在状态栏显示目前所执行的指令，未完成的指令片段亦会显示出来
 set showcmd                 
-set wrap                    " 自动换行显示
 
-"自动重新加载外部修改内容
+"设置文件在外部被修改时，自动更新该文件
 set autoread                
 
+"恢复上次文件打开位置 
+set viminfo='10,\"100,:20,n~/.viminfo
+au BufReadPost * if line("'\"") > 0|if line("'\"") <= line("$")|exe("norm '\"")|else|exe "norm $"|endif|endif
 """"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
 "命令行设置
 """"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
@@ -179,7 +336,7 @@ let g:SuperTabRetainCompletionType=0
 let g:miniBufExplMapCTabSwitchBufs=1
 "let g:miniBufExplMapWindowNavArrows = 1
 let g:miniBufExplMapWindowNavVim=1
-filetype plugin indent on
+
 
 nnoremap <silent> <F3> :Grep<CR>
 nnoremap <silent> <F4> :Rgrep<CR>
@@ -189,7 +346,7 @@ nmap <C-s> :wa<cr>
 imap <C-q> <Esc>
 
 
-"folding setting
+"折叠设置
 nmap wv     <C-w>v
 nmap wc     <C-w>c
 nmap ws     <C-w>s
@@ -252,8 +409,4 @@ nmap <C-_>d :cs find d <C-R>=expand("<cword>")<CR><CR>
 set completeopt-=preview
 let g:vimwiki_list = [{'html_header': '~/vimwiki_html/header.tpl', 'html_footer': '~/vimwiki_html/footer.tpl'}]
 nmap <C-e> :VimwikiAll2HTML<cr>:!wikipublish<cr>
-
-"Restore cursor to file position in previous editing session
-set viminfo='10,\"100,:20,n~/.viminfo
-au BufReadPost * if line("'\"") > 0|if line("'\"") <= line("$")|exe("norm '\"")|else|exe "norm $"|endif|endif
 ```
