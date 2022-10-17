@@ -20,6 +20,8 @@ https://qa.1r1g.com/sf/ask/1959636591/
 
 粗光标永远看左侧
 
+使用vi/vim打开文件是会生成.filename.swp文件用于存储缓冲区的内容（修改内容？），情况一：两人同时访问一个文件时会提示存在.filename.swp文件，建议使用可读浏览（enter键），直接编辑可能会出现版本冲突的情况（互相覆盖，会提示文件已经改动）。情况二：非正常退出，如果没有修改过，.filename.swp文件会自动删除，修改过，.filename.swp文件会保留，此时vim打开会提示存在.filename.swp文件，按e键删除（上一次修改不要了），按r键会根据.filename.swp文件恢复该文件，但不会自动删除.filename.swp，需要手动删除或者再打开一次按e键。
+
 # 自用.vimrc
 
 ```vim

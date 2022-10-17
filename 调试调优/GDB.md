@@ -30,7 +30,7 @@ gdb -x gdbinit
 | `break(b) 行号`<br/>             `函数名`<br/>             `文件:行号`<br/>             `*地址`<br/>`if 条件` | 设置断点（函数名或者行号）<br/>设置断点触发条件 |
 | `info breakpoint(b)`                                                                             | 查看断点                       |
 | `delete(d，del) 断点编号`                                                                             | 删除断点                       |
-| `disable/enable 1`                                                                               | 禁用/启用断点                    |
+| `disable/enable(dis,ena) 1`                                                                      | 禁用/启用断点                    |
 | `ignore [断点编号]  [次数]`                                                                            | 设置断点忽略次数                   |
 | `condition [断点编号] [变量==值 ]`                                                                      | 修改断点触发条件                   |
 | **查看变量**                                                                                         |                            |
@@ -41,7 +41,7 @@ gdb -x gdbinit
 | `info(i) r`<br/>`info(i) r a`                                                                    | 查看整数寄存器<br/>查看所有寄存器        |
 | `info source`                                                                                    | 查看当前源码信息，所在文件完整路径          |
 |                                                                                                  |                            |
-| `display /x,o,t`                                                                                 | 监控值                        |
+| `display(disp) /x,o,t`                                                                           | 监控值                        |
 | `display /i $pc`                                                                                 | 打印下多少条汇编代码，左边箭头是下一条汇编      |
 | `examine(x) /<n/f/u> <addr>`                                                                     | 查看内存                       |
 | `ctrl+alt+X`                                                                                     | 打开TUI界面                    |

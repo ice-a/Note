@@ -189,7 +189,7 @@ bash_history bash_logout是干什么的？
 
 # ls（list directory contents）
 
-alias设置
+自用alias设置
 
 ```shell
 #alias ll='ls -l'
@@ -218,6 +218,7 @@ tar -xf  要解压的文件 [-C 路径] # 默认解压在当前目录下，-C可
 解压时出现is in the future时间戳不对，加上--touch，这是因为tar包来自未来，认为不对，需要把时间戳向后调整一天。文件由三种时间戳。
 
 ```shell
+date # 查看本机时间
 date -s "xxxx-xx-xx" # 调整本地时间戳
 ```
 
@@ -375,3 +376,9 @@ source test.sh # 不需要脚本具有执行权限
 # 组合多个运算符
 # 可以在命令行上组合多个运算符
 ```
+
+# 深度终端deepin-terminal远程管理功能
+
+添加服务器
+
+执行脚本命令添加到环境变量中.bashrc中

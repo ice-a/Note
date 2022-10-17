@@ -1200,7 +1200,7 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
         mmap_unlock();
         /* Make the execution loop process the flush as soon as possible.  */
         cpu->exception_index = EXCP_INTERRUPT;
-        cpu_loop_exit(cpu);
+        cpu_loop_exit(cpu);//异常退出
     }
 
     gen_code_buf = tcg_ctx->code_gen_ptr;
@@ -1227,13 +1227,13 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
     tcg_func_start(tcg_ctx);
 
     tcg_ctx->cpu = env_cpu(env);
-    gen_intermediate_code(cpu, tb, max_insns);//翻译主函数
+    gen_intermediate_code(cpu, tb, max_insns);//前端翻译函数 target code->intermediate_code
     tcg_ctx->cpu = NULL;
     max_insns = tb->icount;
 
     trace_translate_block(tb, tb->pc, tb->tc.ptr);
 
-    /* generate machine code */
+    /* generate machine code */  //后端翻译
     tb->jmp_reset_offset[0] = TB_JMP_RESET_OFFSET_INVALID;
     tb->jmp_reset_offset[1] = TB_JMP_RESET_OFFSET_INVALID;
     tcg_ctx->tb_jmp_reset_offset = tb->jmp_reset_offset;
@@ -2070,14 +2070,14 @@ const size_t tcg_op_defs_max = ARRAY_SIZE(tcg_op_defs);//TCG操作个数
 
 ## TCG初始化
 
-> accel/tcg/tcg-all.c
+> accel/tcg/tcg-all.c：tcg_init
 
 ```c
 static int tcg_init(MachineState *ms)
 {
     TCGState *s = TCG_STATE(current_accel());
 
-    tcg_exec_init(s->tb_size * 1024 * 1024, s->splitwx_enabled);
+    tcg_exec_init(s->tb_size * 1024 * 1024, s->splitwx_enabled);//
     mttcg_enabled = s->mttcg_enabled;
 
     /*
@@ -2118,13 +2118,13 @@ void tcg_exec_init(unsigned long tb_size, int splitwx)
 ```c
 static void cpu_gen_init(void)
 {
-    tcg_context_init(&tcg_init_ctx);
+    tcg_context_init(&tcg_init_ctx);//
 }
 ```
 
 ### tcg_context_init
 
-> tcg/tcg.c:tcg_context_init初始化TCGContext，
+> tcg/tcg.c:tcg_context_init初始化TCGContext
 
 ```c
 void tcg_context_init(TCGContext *s)
@@ -2134,7 +2134,7 @@ void tcg_context_init(TCGContext *s)
     TCGArgConstraint *args_ct;
     TCGTemp *ts;
 
-    memset(s, 0, sizeof(*s));//memset是c/c++初始化函数，将s清0
+    memset(s, 0, sizeof(*s));//memset是c/c++初始化函数，将结构体s清0
     s->nb_globals = 0;
 
     /* Count total number of arguments and allocate the corresponding
@@ -2326,12 +2326,12 @@ void sw64_translate_init(void)
 #endif
 
     int i;
-    //ir
+    //整数寄存器ir
     for (i = 0; i < 31; i++) {
         cpu_std_ir[i] = tcg_global_mem_new_i64(
             cpu_env, offsetof(CPUSW64State, ir[i]), ireg_names[i]);
     }
-    //fr
+    //浮点寄存器fr
     for (i = 0; i < 128; i++) {
         cpu_fr[i] = tcg_global_mem_new_i64(
             cpu_env, offsetof(CPUSW64State, fr[i]), freg_names[i]);
