@@ -172,6 +172,16 @@ info symbol FUN    //查函数与哪个可执行文件有关
 
 可以调试a.out进入glibc或者ld，同时在错误位置前后插打印，以此调试qemu定位错误的位置。
 
+# 日志
+
+qemu-sw64 -d in_asm,op,out_asm -cpu core3 hello > log 2>&1
+
+in_asm,op,out_asm,exec
+
+单步调试 -singlestep，每一个tb中就只有一条汇编代码，同时有很多tb没显示有汇编代码，可能是没有翻译，直接执行的？c 多少，在gdb ./hello-sw-dynamic中对应si 多少
+
+exec打印出每个tb的首地址，方便对应。
+
 # 查错小结：
 
 报错信息还比较重要，通过报错信息能知道是什么地方出问题了，read library？create share object

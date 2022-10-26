@@ -292,14 +292,6 @@ qemu中sw分支用的是通用分支，要写定义它特有的分支，在qemu6
 
 参数写错了，文件打不开，现在执行到tb=2911卡住
 
-ctrl+c停在了/fpu/softfloat.c 的第697行，switch这上面，继续c还能看到代码在往下跑。
-
-include/qemu/bitops.h第358行，这个是符号扩展。等不了了，
-
-最近的tb=2906有in_asm显示，
-
-2895、会停一会儿，2900、2903、2910停一大会儿
-
 运行结果：
 
 > FATAL: tcg_qemu_tb_exec=2964
@@ -313,8 +305,6 @@ include/qemu/bitops.h第358行，这个是符号扩展。等不了了，
 > tcg_qemu_tb_exec=3146
 > 
 > Inferior 1 (process 46205)exited with code 01
-
-先从2906开始看起
 
 /lib /usr/lib /usr/sw/sw....../usr/
 
@@ -354,4 +344,33 @@ fei上还是cpoy return 0
 
 第二个gdb对照有用吗，没法对照上，可以对照上吗。值差一点是有错还是对应的上？qemu就有一两次正常执行有很多个。
 
+# 416.gamess
+
+> 报错信息：
+> 
+> Contents of exam29.err
+> 
+> Note: The following floating-point exceptions are signalling: IEEE_INVALID_FLAG IEEE_DIVIDE_BY_ZERO IEEE_OVERFLOW_FLAG IEEE_UNDERFLOW_FLAG IEEE_DENORMAL
+> STOP IN ABRT
+> 
+> DIMENSIONS OF THE SYMMETRY SUBSPACES ARE 
+> ERROR IN -SYMCUP- NOT ENOUGH COUPLING VECTORS FOUND.
+> EXECUTION OF GAMESS TERMINATED -ABNORMALLY- AT
+
+定位过程：
+
+解决方案：
+
 # 400.perlbench
+
+> 报错信息：
+> 
+> Contents of splitmail.1600.12.26.16.4500.err
+> 
+> ERROR: setuid/setgid execution not supported!
+> BEGIN failed--compilation aborted at lib/mhamain.pl line 59.
+> Compilation failed in require at splitmail.pl line 51.
+
+定位过程：
+
+解决方案：

@@ -1,8 +1,8 @@
 # 编译方法
 
-1、git clone下载源代码，Readme.rst：公版自带，qemu的编译方法，README：自己写的，有编译参数、测试命令，
+1、git clone下载源代码，Readme.rst：公版自带，qemu的编译方法，README：自己写的，有编译参数、测试命令
 
-（编译之前改文件拥有者sudo chown -R fei:fei /home/fei/qemu-6.2.0-work1/？）configure中搜Standard options中可以看到编译选项（./configure --help）搜default_feature为默认参数。
+（编译之前改文件拥有者sudo chown -R fei:fei /home/fei/qemu-6.2.0-work1/？），configure中搜Standard options中可以看到编译选项（./configure --help）搜default_feature为默认参数。
 
 ```shell
 Usage: configure [options]
@@ -32,7 +32,7 @@ disabled with --disable-FEATURE, default is enabled if available
   docs            build documentation
 ```
 
-3、新建build文件夹，新建config.sh脚本，添加configure脚本的参数，运行的话参数设置O2，调试程序参数设置O0，测试性能需要把-g、debug什么的调试选项都去掉。更改脚本文件权限，增加执行权限chmod +x。
+3、新建build文件夹，新建config.sh脚本，添加configure脚本的参数，运行的话参数设置O2，调试程序参数设置O0，测试性能需要把-g、debug等调试相关选项都去掉。更改脚本文件权限，增加执行权限chmod +x。
 
 4、./config.sh配置环境（编译日志config.log），make -j40编译出可执行文件，make install安装可执行文件到指定路径下。
 

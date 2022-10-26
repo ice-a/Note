@@ -140,8 +140,33 @@ b    [函数名/文件:行号]           # 设置断点
 
 # Issue
 
+## 1 Unable to find libthread_db
+
 > 报错：
 > 
 > warning: Unable to find libthread_db matching inferior's thread library
 
 解决方案：[关于gdb “Unable to find libthread_db matching inferior's thread library”的解决办法-CSDN社区](https://bbs.csdn.net/topics/391832947)
+
+## 2 使用gdb 9.1
+
+> 6A机器原版gdb为gdb 7.12，想使用gdb-v9.1
+> 执行gdb-v9.1/bin/gdb 报错
+> ./gdb: error while loading shared libraries: libpython3.7m.so.1.0: cannot open shared object file: No such file or directory
+> 
+> ./gdb: error while loading shared libraries: libbabeltrace.so.1: cannot open shared object file: No such file or directory
+> 
+> ./gdb: error while loading shared libraries: libsource-highlight.so.4: cannot open shared object file: No such file or directory
+
+问题原因：在6A机器上缺包
+
+解决方案：下载包
+
+```shell
+libpython3.7/stable 3.7.3-2+0eagle7 sw_64
+ Shared Python runtime library (version 3.7)
+libbabeltrace1/stable 1.5.6-2+deb10u1 sw_64
+ Babeltrace conversion libraries
+libsource-highlight4v5/stable 3.1.8-1.2 sw_64
+ source highlighting library
+```

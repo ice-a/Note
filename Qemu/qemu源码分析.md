@@ -81,7 +81,7 @@ accel/tcg/cpu-exec.c：cpu_exec()
 
 ### type_init
 
-> include/qemu/module.h:type_init,module_init 构造函数，用于构造东西
+> include/qemu/module.h:type_init,module_init 构造函数，用于构造对象
 
 ```c
 #define type_init(function) module_init(function, MODULE_INIT_QOM) //（gdb）macro expand type_init(function)
@@ -133,7 +133,7 @@ type_init(sw64_cpu_register_types)
 
 后面通过查找这个hash表，就可以找到某个类型cpu的所有描述信息，并且可以找到这类cpu的初始化函数并执行
 
-# 2.main
+# 2.main()
 
 > linux-user/main.c:main
 
@@ -214,6 +214,11 @@ int main(int argc, char **argv)//usermode入口函数main
         qemu_set_log(mask);
     } }    
     ...
+    /* Now that we've loaded the binary, GUEST_BASE is fixed.  Delay
+       generating the prologue until now so that the prologue can take
+       the real value of GUEST_BASE into account.  */
+    tcg_prologue_init(tcg_ctx);//初始化prologue
+    tcg_region_init();
     cpu_loop(env);//翻译执行循环函数
     ...
 }
@@ -313,7 +318,7 @@ loader_exec(int fdexec, const char *filename, char **argv, char **envp,
 }
 ```
 
-### load_elf_binary
+### load_elf_binary()
 
 > linux-user/elfload.c:load_elf_binary
 
@@ -330,7 +335,7 @@ load_elf_binary() {
 }
 ```
 
-### load_elf_image
+### load_elf_image()
 
 ```c
 static void load_elf_image(const char *image_name, int image_fd,
@@ -460,6 +465,207 @@ init machine     accel_commmom_init
 
 cpu_create        object_new   cpu     sw64_cpu_initfn    core3_init
 
+## prologue初始化
+
+### tcg_prologue_init
+
+```c
+void tcg_prologue_init(TCGContext *s)
+{
+    size_t prologue_size, total_size;
+    void *buf0, *buf1;
+
+    /* Put the prologue at the beginning of code_gen_buffer.  */
+    buf0 = s->code_gen_buffer;
+    total_size = s->code_gen_buffer_size;
+    s->code_ptr = buf0;
+    s->code_buf = buf0;
+    s->data_gen_ptr = NULL;
+
+    /*
+     * The region trees are not yet configured, but tcg_splitwx_to_rx
+     * needs the bounds for an assert.
+     */
+    region.start = buf0;
+    region.end = buf0 + total_size;
+
+#ifndef CONFIG_TCG_INTERPRETER
+    tcg_qemu_tb_exec = (tcg_prologue_fn *)tcg_splitwx_to_rx(buf0);
+#endif
+
+    /* Compute a high-water mark, at which we voluntarily flush the buffer
+       and start over.  The size here is arbitrary, significantly larger
+       than we expect the code generation for any one opcode to require.  */
+    s->code_gen_highwater = s->code_gen_buffer + (total_size - TCG_HIGHWATER);
+
+#ifdef TCG_TARGET_NEED_POOL_LABELS
+    s->pool_labels = NULL;
+#endif
+
+    qemu_thread_jit_write();
+    /* Generate the prologue.  */
+    tcg_target_qemu_prologue(s);
+
+#ifdef TCG_TARGET_NEED_POOL_LABELS
+    /* Allow the prologue to put e.g. guest_base into a pool entry.  */
+    {
+        int result = tcg_out_pool_finalize(s);
+        tcg_debug_assert(result == 0);
+    }
+#endif
+
+    buf1 = s->code_ptr;
+#ifndef CONFIG_TCG_INTERPRETER
+    flush_idcache_range((uintptr_t)tcg_splitwx_to_rx(buf0), (uintptr_t)buf0,
+                        tcg_ptr_byte_diff(buf1, buf0));
+#endif
+
+    /* Deduct the prologue from the buffer.  */
+    prologue_size = tcg_current_code_size(s);
+    s->code_gen_ptr = buf1;
+    s->code_gen_buffer = buf1;
+    s->code_buf = buf1;
+    total_size -= prologue_size;
+    s->code_gen_buffer_size = total_size;
+
+    tcg_register_jit(tcg_splitwx_to_rx(s->code_gen_buffer), total_size);
+
+#ifdef DEBUG_DISAS
+    if (qemu_loglevel_mask(CPU_LOG_TB_OUT_ASM)) {
+        FILE *logfile = qemu_log_lock();
+        qemu_log("PROLOGUE: [size=%zu]\n", prologue_size);
+        if (s->data_gen_ptr) {
+            size_t code_size = s->data_gen_ptr - buf0;
+            size_t data_size = prologue_size - code_size;
+            size_t i;
+
+            log_disas(buf0, code_size);
+
+            for (i = 0; i < data_size; i += sizeof(tcg_target_ulong)) {
+                if (sizeof(tcg_target_ulong) == 8) {
+                    qemu_log("0x%08" PRIxPTR ":  .quad  0x%016" PRIx64 "\n",
+                             (uintptr_t)s->data_gen_ptr + i,
+                             *(uint64_t *)(s->data_gen_ptr + i));
+                } else {
+                    qemu_log("0x%08" PRIxPTR ":  .long  0x%08x\n",
+                             (uintptr_t)s->data_gen_ptr + i,
+                             *(uint32_t *)(s->data_gen_ptr + i));
+                }
+            }
+        } else {
+            log_disas(buf0, prologue_size);
+        }
+        qemu_log("\n");
+        qemu_log_flush();
+        qemu_log_unlock(logfile);
+    }
+#endif
+
+    /* Assert that goto_ptr is implemented completely.  */
+    if (TCG_TARGET_HAS_goto_ptr) {
+        tcg_debug_assert(tcg_code_gen_epilogue != NULL);
+    }
+}
+```
+
+### tcg_target_qemu_prologue
+
+```c
+static void tcg_target_qemu_prologue(TCGContext *s)
+{
+    TCGReg r;
+
+    /* Push (FP, LR) and allocate space for all saved registers.  */
+    tcg_out_insn(s, 3314, STP, TCG_REG_FP, TCG_REG_LR,
+                 TCG_REG_SP, -PUSH_SIZE, 1, 1);
+
+    /* Set up frame pointer for canonical unwinding.  */
+    tcg_out_movr_sp(s, TCG_TYPE_I64, TCG_REG_FP, TCG_REG_SP);
+
+    /* Store callee-preserved regs x19..x28.  */
+    for (r = TCG_REG_X19; r <= TCG_REG_X27; r += 2) {
+        int ofs = (r - TCG_REG_X19 + 2) * 8;
+        tcg_out_insn(s, 3314, STP, r, r + 1, TCG_REG_SP, ofs, 1, 0);
+    }
+
+    /* Make stack space for TCG locals.  */
+    tcg_out_insn(s, 3401, SUBI, TCG_TYPE_I64, TCG_REG_SP, TCG_REG_SP,
+                 FRAME_SIZE - PUSH_SIZE);
+
+    /* Inform TCG about how to find TCG locals with register, offset, size.  */
+    tcg_set_frame(s, TCG_REG_SP, TCG_STATIC_CALL_ARGS_SIZE,
+                  CPU_TEMP_BUF_NLONGS * sizeof(long));
+
+#if !defined(CONFIG_SOFTMMU)
+    if (USE_GUEST_BASE) {
+        tcg_out_movi(s, TCG_TYPE_PTR, TCG_REG_GUEST_BASE, guest_base);
+        tcg_regset_set_reg(s->reserved_regs, TCG_REG_GUEST_BASE);
+    }
+#endif
+
+    tcg_out_mov(s, TCG_TYPE_PTR, TCG_AREG0, tcg_target_call_iarg_regs[0]);//保存env
+    tcg_out_insn(s, 3207, BR, tcg_target_call_iarg_regs[1]);//跳转到code_gen_buffer
+
+    /*
+     * Return path for goto_ptr. Set return value to 0, a-la exit_tb,
+     * and fall through to the rest of the epilogue.
+     */
+    tcg_code_gen_epilogue = tcg_splitwx_to_rx(s->code_ptr);
+    tcg_out_movi(s, TCG_TYPE_REG, TCG_REG_X0, 0);
+
+    /* TB epilogue */
+    tb_ret_addr = tcg_splitwx_to_rx(s->code_ptr);
+
+    /* Remove TCG locals stack space.  */
+    tcg_out_insn(s, 3401, ADDI, TCG_TYPE_I64, TCG_REG_SP, TCG_REG_SP,
+                 FRAME_SIZE - PUSH_SIZE);
+
+    /* Restore registers x19..x28.  */
+    for (r = TCG_REG_X19; r <= TCG_REG_X27; r += 2) {
+        int ofs = (r - TCG_REG_X19 + 2) * 8;
+        tcg_out_insn(s, 3314, LDP, r, r + 1, TCG_REG_SP, ofs, 1, 0);
+    }
+
+    /* Pop (FP, LR), restore SP to previous frame.  */
+    tcg_out_insn(s, 3314, LDP, TCG_REG_FP, TCG_REG_LR,
+                 TCG_REG_SP, PUSH_SIZE, 0, 1);
+    tcg_out_insn(s, 3207, RET, TCG_REG_LR);
+}
+```
+
+### prologue代码
+
+```assembly
+PROLOGUE: [size=108]
+0x2000e90e000:  subl    sp,0x40,sp
+0x2000e90e004:  stl fp,0(sp)
+0x2000e90e008:  stl ra,8(sp)
+0x2000e90e00c:  or  sp,$r31,fp
+0x2000e90e010:  stl $r9,16(sp)
+0x2000e90e014:  stl $r10,24(sp)
+0x2000e90e018:  stl $r11,32(sp)
+0x2000e90e01c:  stl $r12,40(sp)
+0x2000e90e020:  stl $r13,48(sp)
+0x2000e90e024:  stl $r14,56(sp)
+0x2000e90e028:  ldi $r24,1152
+0x2000e90e02c:  subl    sp,$r24,sp
+0x2000e90e030:  or  $r16,$r31,$r9             # tcg_out_mov
+0x2000e90e034:  jmp $r31,($r17),0x2000e90e038 # tcg_out_insn
+0x2000e90e038:  ldi $r0,0
+0x2000e90e03c:  ldi $r24,1152
+0x2000e90e040:  addl    sp,$r24,sp
+0x2000e90e044:  ldl $r9,16(sp)
+0x2000e90e048:  ldl $r10,24(sp) 
+0x2000e90e04c:  ldl $r11,32(sp)
+0x2000e90e050:  ldl $r12,40(sp)
+0x2000e90e054:  ldl $r13,48(sp)
+0x2000e90e058:  ldl $r14,56(sp)
+0x2000e90e05c:  ldl fp,0(sp)
+0x2000e90e060:  ldl ra,8(sp)
+0x2000e90e064:  addl    sp,0x40,sp
+0x2000e90e068:  ret $r31,(ra),0
+```
+
 ## SW：异常类型
 
 ```c
@@ -486,7 +692,7 @@ enum {
 };
 ```
 
-## SW：cpu_loop
+## SW：cpu_loop()
 
 > linux-user/sw64/cpu_loop.c:cpu_loop
 
@@ -508,9 +714,9 @@ void cpu_loop(CPUSW64State *env)
             cpu_abort(cs, "ILLEGAL SW64 insn at line %d!", __LINE__);
     case EXCP_CALL_SYS://正常处理
         switch (env->error_code) {
-            case 0x83:
+            case 0x83://代表系统调用
                 /* CALLSYS */
-                trapnr = env->ir[IDX_V0];
+                trapnr = env->ir[IDX_V0];//trapnr系统调用号
                 sysret = do_syscall(env, trapnr,
                                     env->ir[IDX_A0], env->ir[IDX_A1],
                                     env->ir[IDX_A2], env->ir[IDX_A3],
@@ -526,9 +732,9 @@ void cpu_loop(CPUSW64State *env)
                 /* Syscall writes 0 to V0 to bypass error check, similar
                    to how this is handled internal to Linux kernel.
                    (Ab)use trapnr temporarily as boolean indicating error. */
-                trapnr = (env->ir[IDX_V0] != 0 && sysret < 0);
-                env->ir[IDX_V0] = (trapnr ? -sysret : sysret);
-                env->ir[IDX_A3] = trapnr;
+                trapnr = (env->ir[IDX_V0] != 0 && sysret < 0);//异常trapnr=1否则为0
+                env->ir[IDX_V0] = (trapnr ? -sysret : sysret);//异常返回负值，否则正常返回，r0
+                env->ir[IDX_A3] = trapnr;//r19
                 break;
             default:
                 printf("UNDO sys_call %lx\n", env->error_code);
@@ -566,7 +772,127 @@ void cpu_loop(CPUSW64State *env)
 }
 ```
 
-## cpu_exec
+## TranslationBlock
+
+> include/exec/exec-all.h:TranslationBlock
+> 
+> 翻译块tb用于存储翻译好的代码以及地址。code cache用于存储很多个tb，查找tb用二叉查找树，相关变量存储在tb_tc中
+
+TCG 翻译过程中以Translation Block (TB)为单位, 它对应一组target指令。
+
+基本的操作就是翻译target指令到 Internal-Representation(IR) 直至以下几个条件：
+
+- 跳转指令
+
+- 系统调用
+
+- 到达页的边缘
+
+```c
+struct TranslationBlock {
+    target_ulong pc;   /* simulated PC corresponding to this block (EIP + CS base) */ //对应该TB块的模拟PC值
+    target_ulong cs_base; /* CS base for this block */
+    uint32_t flags; /* flags defining in which context the code was generated */
+    uint32_t cflags;    /* compile flags */
+#define CF_COUNT_MASK  0x00007fff
+#define CF_LAST_IO     0x00008000 /* Last insn may be an IO access.  */ //最后一条指令也许是IO访问
+#define CF_MEMI_ONLY   0x00010000 /* Only instrument memory ops */ //仅仪器内存操作
+#define CF_USE_ICOUNT  0x00020000
+#define CF_INVALID     0x00040000 /* TB is stale. Set with @jmp_lock held */ //TB已过时，保持@jmp_lock时设置
+#define CF_PARALLEL    0x00080000 /* Generate code for a parallel context */ //为并行上下文生成代码
+#define CF_CLUSTER_MASK 0xff000000 /* Top 8 bits are cluster ID */ //前8位是群集ID
+#define CF_CLUSTER_SHIFT 24
+
+    /* Per-vCPU dynamic tracing state used to generate this TB */
+    uint32_t trace_vcpu_dstate;
+
+    /*
+     * Above fields used for comparing
+     */
+
+    /* size of target code for this block (1 <= size <= TARGET_PAGE_SIZE) */
+    uint16_t size;
+    uint16_t icount;
+
+    struct tb_tc tc;
+
+    /* first and second physical page containing code. The lower bit
+       of the pointer tells the index in page_next[].
+       The list is protected by the TB's page('s) lock(s) */
+    uintptr_t page_next[2];
+    tb_page_addr_t page_addr[2];
+
+    /* jmp_lock placed here to fill a 4-byte hole. Its documentation is below */
+    QemuSpin jmp_lock;
+
+    /* The following data are used to directly call another TB from
+     * the code of this one. This can be done either by emitting direct or
+     * indirect native jump instructions. These jumps are reset so that the TB
+     * just continues its execution. The TB can be linked to another one by
+     * setting one of the jump targets (or patching the jump instruction). Only
+     * two of such jumps are supported.
+     */
+    uint16_t jmp_reset_offset[2]; /* offset of original jump target */ //原始跳转目标的偏移量
+//为jmp_reset_offset设置一个0xffff作为没有生成跳转的标志
+#define TB_JMP_RESET_OFFSET_INVALID 0xffff /* indicates no jump generated */ 
+    uintptr_t jmp_target_arg[2];  /* target address or offset */       //目标地址或偏移量
+
+    /*
+     * Each TB has a NULL-terminated list (jmp_list_head) of incoming jumps.
+     * Each TB can have two outgoing jumps, and therefore can participate
+     * in two lists. The list entries are kept in jmp_list_next[2]. The least
+     * significant bit (LSB) of the pointers in these lists is used to encode
+     * which of the two list entries is to be used in the pointed TB.
+     *
+     * List traversals are protected by jmp_lock. The destination TB of each
+     * outgoing jump is kept in jmp_dest[] so that the appropriate jmp_lock
+     * can be acquired from any origin TB.
+     *
+     * jmp_dest[] are tagged pointers as well. The LSB is set when the TB is
+     * being invalidated, so that no further outgoing jumps from it can be set.
+     *
+     * jmp_lock also protects the CF_INVALID cflag; a jump must not be chained
+     * to a destination TB that has CF_INVALID set.
+     */
+    uintptr_t jmp_list_head;//空结束链表
+    uintptr_t jmp_list_next[2];//链表下一个
+    uintptr_t jmp_dest[2];//两个outgoing jumps，跳转目标tb
+};
+```
+
+以下数据用于从该TB的代码直接调用另一TB。这可以通过发出直接或间接的本机跳转指令来实现。这些跳转被重置，以便TB继续执行。通过设置一个跳转目标（或修补跳转指令），TB可以链接到另一个TB。仅支持其中两个跳转。
+
+每个tb有一个包含即将到来的跳转的空结束链表（jmp_list_head）。每个tb可以有两个向外的跳转，因此可以加入两个链表。链表实体存放在jmp_list_next[2]。这些链表指针的最低有效位（LSB）用于编码TB指向两个列表实体中的哪一个。
+
+列表遍历受jmp_lock保护。每个传出跳转的目标TB保存在jmp_dest[]中，以便可以从任何源TB获取适当的jmp_lock。
+
+jmp_dest[]也是标记指针。LSB是在TB失效时设置的，因此不能再设置它的传出跳转。
+
+jmp_lock还保护CF_INVALID cflag；跳跃不能用链子锁住到设置了CF_INVALID的目标TB。
+
+### tb_tc
+
+> include/exec/exec-all.h:tb_tc
+> 
+> tc是中用于存储翻译缓存相关的变量，指针ptr指向翻译好的代码，翻译块对应存放在翻译缓存的代码
+> 
+> 二叉查找树，查找数据时ptr+size
+
+```c
+/*
+ * Translation Cache-related fields of a TB.
+ * This struct exists just for convenience; we keep track of TB's in a binary
+ * search tree, and the only fields needed to compare TB's in the tree are
+ * @ptr and @size.
+ * Note: the address of search data can be obtained by adding @size to @ptr.
+ */
+struct tb_tc {
+    const void *ptr;    /* pointer to the translated code */  //tb块翻译后保存的位置，对应主机地址
+    size_t size;//TB块大小
+};
+```
+
+## cpu_exec()
 
 > accel/tcg/cpu-exec.c:cpu_exec
 
@@ -574,13 +900,14 @@ void cpu_loop(CPUSW64State *env)
 int cpu_exec(CPUState *cpu)
 {
     ...
-    while (!cpu_handle_exception(cpu, &ret)) {//处理异常
-        TranslationBlock *last_tb = NULL;
-        int tb_exit = 0;
+    /* if an exception is pending, we execute it here */
+    while (!cpu_handle_exception(cpu, &ret)) {//如有异常则处理异常
+        TranslationBlock *last_tb = NULL;//代表tb链中最后一个tb
+        int tb_exit = 0;//代表tb是否要结束
 
-        while (!cpu_handle_interrupt(cpu, &last_tb)) {//处理中断
+        while (!cpu_handle_interrupt(cpu, &last_tb)) {//处理中断，该循环继续翻译执行tb
             uint32_t cflags = cpu->cflags_next_tb;
-            TranslationBlock *tb;
+            TranslationBlock *tb;//生成的tb
 
             /* When requested, use an exact setting for cflags for the next
                execution.  This is used for icount, precise smc, and stop-
@@ -599,11 +926,12 @@ int cpu_exec(CPUState *cpu)
                if the guest is in advance */
             align_clocks(&sc, cpu);
         }
+    }
     ...
 }
 ```
 
-### tb_find
+### tb_find()
 
 > accel/tcg/cpu-exec.c:tb_find
 
@@ -612,19 +940,21 @@ static inline TranslationBlock *tb_find(CPUState *cpu,
                                         TranslationBlock *last_tb,
                                         int tb_exit, uint32_t cflags)
 {
-    CPUArchState *env = (CPUArchState *)cpu->env_ptr;
-    TranslationBlock *tb;
+    CPUArchState *env = (CPUArchState *)cpu->env_ptr;//用CPUState *cpu中的env强制类型转换成CPUArchState（CPUSW64State）的env
+    TranslationBlock *tb;//TB块指针tb
     target_ulong cs_base, pc;
     uint32_t flags;
 
-    cpu_get_tb_cpu_state(env, &pc, &cs_base, &flags);//根据env，初始化pc，cs_base和flags
+    cpu_get_tb_cpu_state(env, &pc, &cs_base, &flags);//从env中取pc，cs_base=0和flags
 
-    tb = tb_lookup(cpu, pc, cs_base, flags, cflags);//在cache中根据target PC查找TB，/include/exec/tb-lookup.h
-    if (tb == NULL) {
+    tb = tb_lookup(cpu, pc, cs_base, flags, cflags);//在cache中根据查找TB，/include/exec/tb-lookup.h
+    if (tb == NULL) {//如果没有找到tb，则
         mmap_lock();
-        tb = tb_gen_code(cpu, pc, cs_base, flags, cflags);//生成TB
+        tb = tb_gen_code(cpu, pc, cs_base, flags, cflags);//翻译生成一个TB块
         mmap_unlock();
         /* We add the TB in the virtual pc hash table for the fast lookup */
+        //我们把TB添加到虚拟pc哈希表中以便快速查找
+        //根据pc生成hash值，将tb写入到hash表中cpu->tb_jmp_cache[tb_jmp_cache_hash_func(pc)]=
         qatomic_set(&cpu->tb_jmp_cache[tb_jmp_cache_hash_func(pc)], tb);
     }
     #ifndef CONFIG_USER_ONLY
@@ -637,14 +967,414 @@ static inline TranslationBlock *tb_find(CPUState *cpu,
     }
 #endif
     /* See if we can patch the calling TB. */
-    if (last_tb) {// 链接tb块
-        tb_add_jump(last_tb, tb_exit, tb);
+    if (last_tb) {//若有上一个TB块，将上一个TB块与当前TB块进行链接
+        tb_add_jump(last_tb, tb_exit, tb);//last_tb是TB的指针，而tb_exit是jump slot index，链接last_tb->tb
     }
     return tb;
 }
 ```
 
-### cpu_loop_exec_tb
+#### tb_lookup()
+
+> include/exec/tb-lookup.h
+
+```c
+/* Might cause an exception, so have a longjmp destination ready */
+static inline TranslationBlock *tb_lookup(CPUState *cpu, target_ulong pc,
+                                          target_ulong cs_base,
+                                          uint32_t flags, uint32_t cflags)
+{
+    TranslationBlock *tb;
+    uint32_t hash;
+
+    /* we should never be trying to look up an INVALID tb */
+    tcg_debug_assert(!(cflags & CF_INVALID));
+
+    hash = tb_jmp_cache_hash_func(pc);//一级查找缓存（fast path）
+    //原子操作，一致性读写，保障当我读这块数据得时候，没人能更新（删除）掉这块数据，而且还是lock-free的
+    tb = qatomic_rcu_read(&cpu->tb_jmp_cache[hash]);//读hash表
+    //检查tb是否合法
+    if (likely(tb &&
+               tb->pc == pc &&
+               tb->cs_base == cs_base &&
+               tb->flags == flags &&
+               tb->trace_vcpu_dstate == *cpu->trace_dstate &&
+               tb_cflags(tb) == cflags)) {
+        return tb;
+    }
+    //如果一级缓存没能命中有效TB块，则进入二级缓存（slow path）查找，
+    //若找到就将结果放入到一级缓存中，以增加一级缓存的TB块命中率
+    tb = tb_htable_lookup(cpu, pc, cs_base, flags, cflags);
+    if (tb == NULL) {//二级缓存没找到tb
+        return NULL;
+    }
+    qatomic_set(&cpu->tb_jmp_cache[hash], tb);//二级缓存找到tb，写入一级缓存中
+    return tb;
+}
+```
+
+#### tb_gen_code()
+
+> accel/tcg/cpu-exec.c
+
+```c
+TranslationBlock *tb_gen_code(CPUState *cpu,
+                              target_ulong pc, target_ulong cs_base,
+                              uint32_t flags, int cflags)
+{
+    CPUArchState *env = cpu->env_ptr;//env = env_ptr
+    TranslationBlock *tb, *existing_tb;
+    tb_page_addr_t phys_pc, phys_page2;
+    target_ulong virt_page2;
+    tcg_insn_unit *gen_code_buf;
+    int gen_code_size, search_size, max_insns;
+#ifdef CONFIG_PROFILER
+    TCGProfile *prof = &tcg_ctx->prof;
+    int64_t ti;
+#endif
+
+    assert_memory_lock();
+    qemu_thread_jit_write();
+
+    phys_pc = get_page_addr_code(env, pc);
+
+    if (phys_pc == -1) {
+        /* Generate a one-shot TB with 1 insn in it */
+        cflags = (cflags & ~CF_COUNT_MASK) | CF_LAST_IO | 1;
+    }
+
+    max_insns = cflags & CF_COUNT_MASK;
+    if (max_insns == 0) {
+        max_insns = CF_COUNT_MASK;
+    }
+    if (max_insns > TCG_MAX_INSNS) {
+        max_insns = TCG_MAX_INSNS;
+    }
+    if (cpu->singlestep_enabled || singlestep) {//单步调试-singlestep
+        max_insns = 1;
+    }
+
+ buffer_overflow:
+    tb = tcg_tb_alloc(tcg_ctx);//分配tb空间
+    if (unlikely(!tb)) {
+        /* flush must be done */
+        tb_flush(cpu);
+        mmap_unlock();
+        /* Make the execution loop process the flush as soon as possible.  */
+        cpu->exception_index = EXCP_INTERRUPT;
+        cpu_loop_exit(cpu);//异常退出
+    }
+
+    gen_code_buf = tcg_ctx->code_gen_ptr;
+    tb->tc.ptr = tcg_splitwx_to_rx(gen_code_buf);
+    tb->pc = pc;
+    tb->cs_base = cs_base;
+    tb->flags = flags;
+    tb->cflags = cflags;
+    tb->trace_vcpu_dstate = *cpu->trace_dstate;
+    tcg_ctx->tb_cflags = cflags;
+ tb_overflow:
+
+#ifdef CONFIG_PROFILER
+    /* includes aborted translations because of exceptions */
+    qatomic_set(&prof->tb_count1, prof->tb_count1 + 1);
+    ti = profile_getclock();
+#endif
+
+    gen_code_size = sigsetjmp(tcg_ctx->jmp_trans, 0);
+    if (unlikely(gen_code_size != 0)) {
+        goto error_return;
+    }
+
+    tcg_func_start(tcg_ctx);
+
+    tcg_ctx->cpu = env_cpu(env);//进入翻译模式？
+    gen_intermediate_code(cpu, tb, max_insns);//前端翻译函数 target code->intermediate_code
+    tcg_ctx->cpu = NULL;
+    max_insns = tb->icount;
+
+    trace_translate_block(tb, tb->pc, tb->tc.ptr);
+
+    /* generate machine code */  //生成机器码
+    tb->jmp_reset_offset[0] = TB_JMP_RESET_OFFSET_INVALID;//初始化？
+    tb->jmp_reset_offset[1] = TB_JMP_RESET_OFFSET_INVALID;
+    tcg_ctx->tb_jmp_reset_offset = tb->jmp_reset_offset;
+    if (TCG_TARGET_HAS_direct_jump) {//SW中宏设定为1，代表SW支持直接跳转这个功能？
+        tcg_ctx->tb_jmp_insn_offset = tb->jmp_target_arg;//如支持，则tcg_ctx->tb_jmp_insn_offset是
+        tcg_ctx->tb_jmp_target_addr = NULL;
+    } else {
+        tcg_ctx->tb_jmp_insn_offset = NULL;
+        tcg_ctx->tb_jmp_target_addr = tb->jmp_target_arg;//如不支持，则tcg_ctx->tb_jmp_target_addr是
+    }
+
+#ifdef CONFIG_PROFILER
+    qatomic_set(&prof->tb_count, prof->tb_count + 1);
+    qatomic_set(&prof->interm_time,
+                prof->interm_time + profile_getclock() - ti);
+    ti = profile_getclock();
+#endif
+    //后端翻译
+    gen_code_size = tcg_gen_code(tcg_ctx, tb);//http://blog.chinaunix.net/uid-22954220-id-4978345.html
+    if (unlikely(gen_code_size < 0)) {
+ error_return:
+        switch (gen_code_size) {
+        case -1:
+            /*
+             * Overflow of code_gen_buffer, or the current slice of it.
+             *
+             * TODO: We don't need to re-do gen_intermediate_code, nor
+             * should we re-do the tcg optimization currently hidden
+             * inside tcg_gen_code.  All that should be required is to
+             * flush the TBs, allocate a new TB, re-initialize it per
+             * above, and re-do the actual code generation.
+             */
+            qemu_log_mask(CPU_LOG_TB_OP | CPU_LOG_TB_OP_OPT,
+                          "Restarting code generation for "
+                          "code_gen_buffer overflow\n");
+            goto buffer_overflow;
+
+        case -2:
+            /*
+             * The code generated for the TranslationBlock is too large.
+             * The maximum size allowed by the unwind info is 64k.
+             * There may be stricter constraints from relocations
+             * in the tcg backend.
+             *
+             * Try again with half as many insns as we attempted this time.
+             * If a single insn overflows, there's a bug somewhere...
+             */
+            assert(max_insns > 1);
+            max_insns /= 2;
+            qemu_log_mask(CPU_LOG_TB_OP | CPU_LOG_TB_OP_OPT,
+                          "Restarting code generation with "
+                          "smaller translation block (max %d insns)\n",
+                          max_insns);
+            goto tb_overflow;
+
+        default:
+            g_assert_not_reached();
+        }
+    }
+    search_size = encode_search(tb, (void *)gen_code_buf + gen_code_size);
+    if (unlikely(search_size < 0)) {
+        goto buffer_overflow;
+    }
+    tb->tc.size = gen_code_size;
+
+#ifdef CONFIG_PROFILER
+    qatomic_set(&prof->code_time, prof->code_time + profile_getclock() - ti);
+    qatomic_set(&prof->code_in_len, prof->code_in_len + tb->size);
+    qatomic_set(&prof->code_out_len, prof->code_out_len + gen_code_size);
+    qatomic_set(&prof->search_out_len, prof->search_out_len + search_size);
+#endif
+
+#ifdef DEBUG_DISAS
+    if (qemu_loglevel_mask(CPU_LOG_TB_OUT_ASM) &&
+        qemu_log_in_addr_range(tb->pc)) {
+        FILE *logfile = qemu_log_lock();
+        int code_size, data_size;
+        const tcg_target_ulong *rx_data_gen_ptr;
+        size_t chunk_start;
+        int insn = 0;
+
+        if (tcg_ctx->data_gen_ptr) {
+            rx_data_gen_ptr = tcg_splitwx_to_rx(tcg_ctx->data_gen_ptr);
+            code_size = (const void *)rx_data_gen_ptr - tb->tc.ptr;
+            data_size = gen_code_size - code_size;
+        } else {
+            rx_data_gen_ptr = 0;
+            code_size = gen_code_size;
+            data_size = 0;
+        }
+
+        /* Dump header and the first instruction */        
+        qemu_log("OUT: [size=%d]\n", gen_code_size);//-d out_asm.
+        qemu_log("  -- guest addr 0x" TARGET_FMT_lx " + tb prologue\n",
+                 tcg_ctx->gen_insn_data[insn][0]);
+        chunk_start = tcg_ctx->gen_insn_end_off[insn];
+        log_disas(tb->tc.ptr, chunk_start);
+
+        /*
+         * Dump each instruction chunk, wrapping up empty chunks into
+         * the next instruction. The whole array is offset so the
+         * first entry is the beginning of the 2nd instruction.
+         */
+        while (insn < tb->icount) {
+            size_t chunk_end = tcg_ctx->gen_insn_end_off[insn];
+            if (chunk_end > chunk_start) {
+                qemu_log("  -- guest addr 0x" TARGET_FMT_lx "\n",
+                         tcg_ctx->gen_insn_data[insn][0]);
+                log_disas(tb->tc.ptr + chunk_start, chunk_end - chunk_start);
+                chunk_start = chunk_end;
+            }
+            insn++;
+        }
+
+        if (chunk_start < code_size) {
+            qemu_log("  -- tb slow paths + alignment\n");
+            log_disas(tb->tc.ptr + chunk_start, code_size - chunk_start);
+        }
+
+        /* Finally dump any data we may have after the block */
+        if (data_size) {
+            int i;
+            qemu_log("  data: [size=%d]\n", data_size);
+            for (i = 0; i < data_size / sizeof(tcg_target_ulong); i++) {
+                qemu_log("0x%08" PRIxPTR ":  .quad  0x%" TCG_PRIlx "\n",
+                         (uintptr_t)&rx_data_gen_ptr[i], rx_data_gen_ptr[i]);
+            }
+        }
+        qemu_log("\n");
+        qemu_log_flush();
+        qemu_log_unlock(logfile);
+    }
+#endif
+
+    qatomic_set(&tcg_ctx->code_gen_ptr, (void *)
+        ROUND_UP((uintptr_t)gen_code_buf + gen_code_size + search_size,
+                 CODE_GEN_ALIGN));
+
+    /* init jump list */ //初始化跳转链表，全置NULL
+    qemu_spin_init(&tb->jmp_lock);//初始化自旋锁，将tb->jmp_lock->value置为0
+    tb->jmp_list_head = (uintptr_t)NULL;
+    tb->jmp_list_next[0] = (uintptr_t)NULL;
+    tb->jmp_list_next[1] = (uintptr_t)NULL;
+    tb->jmp_dest[0] = (uintptr_t)NULL;
+    tb->jmp_dest[1] = (uintptr_t)NULL;
+
+    /* init original jump addresses which have been set during tcg_gen_code() */
+    //初始化在tcg_gen_code()期间设置的原始跳转地址
+    if (tb->jmp_reset_offset[0] != TB_JMP_RESET_OFFSET_INVALID) {
+        tb_reset_jump(tb, 0);//设置跳转
+    }
+    if (tb->jmp_reset_offset[1] != TB_JMP_RESET_OFFSET_INVALID) {
+        tb_reset_jump(tb, 1);
+    }
+
+    /*
+     * If the TB is not associated with a physical RAM page then
+     * it must be a temporary one-insn TB, and we have nothing to do
+     * except fill in the page_addr[] fields. Return early before
+     * attempting to link to other TBs or add to the lookup table.
+     */
+    if (phys_pc == -1) {
+        tb->page_addr[0] = tb->page_addr[1] = -1;
+        return tb;
+    }
+
+    /* check next page if needed */
+    virt_page2 = (pc + tb->size - 1) & TARGET_PAGE_MASK;
+    phys_page2 = -1;
+    if ((pc & TARGET_PAGE_MASK) != virt_page2) {
+        phys_page2 = get_page_addr_code(env, virt_page2);
+    }
+    /*
+     * No explicit memory barrier is required -- tb_link_page() makes the
+     * TB visible in a consistent state.
+     */
+    existing_tb = tb_link_page(tb, phys_pc, phys_page2);
+    /* if the TB already exists, discard what we just translated */
+    if (unlikely(existing_tb != tb)) {
+        uintptr_t orig_aligned = (uintptr_t)gen_code_buf;
+
+        orig_aligned -= ROUND_UP(sizeof(*tb), qemu_icache_linesize);
+        qatomic_set(&tcg_ctx->code_gen_ptr, (void *)orig_aligned);
+        tb_destroy(tb);
+        return existing_tb;
+    }
+    tcg_tb_insert(tb);
+    return tb;
+}
+```
+
+#### tb_add_jump()
+
+```c
+static inline void tb_add_jump(TranslationBlock *tb, int n,
+                               TranslationBlock *tb_next)
+{
+    uintptr_t old;
+
+    qemu_thread_jit_write();
+    assert(n < ARRAY_SIZE(tb->jmp_list_next));
+    qemu_spin_lock(&tb_next->jmp_lock);//
+
+    /* make sure the destination TB is valid */
+    //确保目标TB有效
+    if (tb_next->cflags & CF_INVALID) {
+        goto out_unlock_next;
+    }
+    /* Atomically claim the jump destination slot only if it was NULL */
+    //仅当跳转目标插槽为NULL时，才原子声明该插槽
+    old = qatomic_cmpxchg(&tb->jmp_dest[n], (uintptr_t)NULL,
+                          (uintptr_t)tb_next);//保存tb->jmp_dest[n] 指向 tb_next
+    if (old) {
+        goto out_unlock_next;
+    }
+
+    /* patch the native jump address */
+    tb_set_jmp_target(tb, n, (uintptr_t)tb_next->tc.ptr);//修改jmp指令的地址部分
+
+    /* add in TB jmp list */
+    tb->jmp_list_next[n] = tb_next->jmp_list_head;//这两个是关联关系是为了unlink时使用
+    tb_next->jmp_list_head = (uintptr_t)tb | n;
+
+    qemu_spin_unlock(&tb_next->jmp_lock);
+
+    qemu_log_mask_and_addr(CPU_LOG_EXEC, tb->pc,
+                           "Linking TBs %p [" TARGET_FMT_lx
+                           "] index %d -> %p [" TARGET_FMT_lx "]\n",
+                           tb->tc.ptr, tb->pc, n,
+                           tb_next->tc.ptr, tb_next->pc);
+    return;
+
+ out_unlock_next:
+    qemu_spin_unlock(&tb_next->jmp_lock);
+    return;
+}
+```
+
+##### tb_set_jmp_target
+
+```c
+void tb_set_jmp_target(TranslationBlock *tb, int n, uintptr_t addr)
+{
+    if (TCG_TARGET_HAS_direct_jump) {
+        uintptr_t offset = tb->jmp_target_arg[n];//找到需要修改的指令位置在TB中的偏移
+        uintptr_t tc_ptr = (uintptr_t)tb->tc.ptr;//前一个TB的起始位置
+        uintptr_t jmp_rx = tc_ptr + offset;
+        uintptr_t jmp_rw = jmp_rx - tcg_splitwx_diff;
+        tb_target_set_jmp_target(tc_ptr, jmp_rx, jmp_rw, addr);//arch定义的修改指令
+    } else {
+        tb->jmp_target_arg[n] = addr;
+    }
+}
+```
+
+```c
+/* TCG_TARGET_HAS_direct_jump */
+void tb_target_set_jmp_target(uintptr_t tc_ptr, uintptr_t jmp_rx, uintptr_t jmp_rw, uintptr_t addr)
+{
+    tcg_insn_unit i1, i2;
+    uint64_t pair;
+
+    ptrdiff_t offset = addr - jmp_rx -1;
+
+    if (offset == sextract64(offset, 0, 21)) {
+        i1 = OPC_BR | (TCG_REG_ZERO & 0x1f) << 21| ((offset >> 2) & 0x1fffff);
+    i2 = OPC_NOP;
+        pair = (uint64_t)i2 << 32 | i1;
+        qatomic_set((uint64_t *)jmp_rw, pair);
+        flush_idcache_range(jmp_rx, jmp_rw, 8); //not support no sw_64
+    } else if(offset == sextract64(offset, 0, 32)){
+        modify_direct_addr(addr, jmp_rw, jmp_rx);
+    } else {
+      tcg_debug_assert("tb_target");
+    }
+}
+```
+
+### cpu_loop_exec_tb()
 
 > accel/tcg/cpu-exec.c:cpu_loop_exec_tb
 
@@ -654,10 +1384,10 @@ static inline void cpu_loop_exec_tb(CPUState *cpu, TranslationBlock *tb,
 {
     int32_t insns_left;
 
-    trace_exec_tb(tb, tb->pc);//追踪tb起始地址，可以打印
-    tb = cpu_tb_exec(cpu, tb, tb_exit);
-    if (*tb_exit != TB_EXIT_REQUESTED) {
-        *last_tb = tb;
+    trace_exec_tb(tb, tb->pc);//追踪tb起始地址tb->pc
+    tb = cpu_tb_exec(cpu, tb, tb_exit);//执行tb
+    if (*tb_exit != TB_EXIT_REQUESTED) {//当前tb尚未结束，则把当前TB地址赋给*last_tb
+        *last_tb = tb;//二级指针last_tb
         return;
     }
 
@@ -690,10 +1420,13 @@ static inline void cpu_loop_exec_tb(CPUState *cpu, TranslationBlock *tb,
      * insns_left instructions in it.
      */
     if (!cpu->icount_extra && insns_left > 0 && insns_left < tb->icount)  {
-        cpu->cflags_next_tb = (tb->cflags & ~CF
+        cpu->cflags_next_tb = (tb->cflags & ~CF_COUNT_MASK) | insns_left;
+    }
+#endif
+}
 ```
 
-### cpu_tb_exec
+#### cpu_tb_exec()
 
 > accel/tcg/cpu-exec.c:cpu_tb_exec
 
@@ -840,6 +1573,42 @@ struct SW64CPU {
 
 CPUState是CPU对象的数据结构，一个CPUState就表示一个虚拟机的CPU（一个cpu核心或者线程）。在QEMU中，任何CPU的操作的大部分都是对以CPUState形式出现的CPU来进行的。CPUSW64State，*env_ptr？这个数据结构保存该CPU的所有寄存器的状态，也包括段寄存器、通用寄存器、标志寄存器等，也包括FPU等浮点寄存器，以及与KVM状态相关的信息。sw64对应的数据结构是CPUSW64State，可在target/sw64/cpu.h中看到。
 
+> include/hw/core/cpu.h:CPUState
+
+```c
+struct CPUState {
+    /*< private >*/
+    DeviceState parent_obj;//父类是device
+    /*< public >*/
+
+    int nr_cores;
+    int nr_threads;
+
+    struct QemuThread *thread;
+#ifdef _WIN32
+    HANDLE hThread;
+#endif
+    int thread_id;
+    bool running, has_waiter;
+    struct QemuCond *halt_cond;
+    bool thread_kicked;
+    bool created;
+    bool stop;
+    bool stopped;
+
+
+    void *env_ptr; /* CPUSW64State */ //即CPUSW64State，在main中赋值给cpu
+
+    /* Accessed in parallel; all accesses must be atomic */
+    //指针数组，数组元素是TranslationBlock型指针。
+    TranslationBlock *tb_jmp_cache[TB_JMP_CACHE_SIZE];
+
+    void *opaque;//TaskState
+
+    QTAILQ_ENTRY(CPUState) node;
+};//cpu、thread_cpu
+```
+
 > target/sw64/cpu.h:CPUSW64State,target机器寄存器信息
 
 ```c
@@ -848,7 +1617,7 @@ typedef SW64CPU ArchCPU;
 
 struct CPUSW64State {//对应tcg_init_ctx.temps[]
     uint64_t ir[32];//SW整数寄存器R0~R31,一共32个，即/usr/include/sw_64/regdef.h中定义
-    uint64_t fr[128];//SW浮点寄存器F0~F31，一共32个
+    uint64_t fr[128];//SW浮点寄存器F0~F31，一共32个，向量寄存器。
     uint64_t pc;//程序计数器
     bool is_slave;
 
@@ -867,7 +1636,7 @@ struct CPUSW64State {//对应tcg_init_ctx.temps[]
 #endif
 
     uint32_t flags;
-    uint64_t error_code;
+    uint64_t error_code;//错误代码
     uint64_t unique;
     uint64_t lock_addr;//
     uint64_t lock_valid;//
@@ -897,41 +1666,6 @@ struct CPUSW64State {//对应tcg_init_ctx.temps[]
     uint8_t vlenma_idxa;
     uint8_t stable;
 };
-```
-
-> include/hw/core/cpu.h:CPUState
-
-```c
-struct CPUState {
-    /*< private >*/
-    DeviceState parent_obj;//父类是device
-    /*< public >*/
-
-    int nr_cores;
-    int nr_threads;
-
-    struct QemuThread *thread;
-#ifdef _WIN32
-    HANDLE hThread;
-#endif
-    int thread_id;
-    bool running, has_waiter;
-    struct QemuCond *halt_cond;
-    bool thread_kicked;
-    bool created;
-    bool stop;
-    bool stopped;
-
-
-    void *env_ptr; /* CPUSW64State */ //在main中赋值给cpu
-
-    /* Accessed in parallel; all accesses must be atomic */
-    TranslationBlock *tb_jmp_cache[TB_JMP_CACHE_SIZE];
-
-    void *opaque;//TaskState
-
-    QTAILQ_ENTRY(CPUState) node;
-};//thread_cpu
 ```
 
 ## code_gen_buffer
@@ -1015,115 +1749,16 @@ static bool alloc_code_gen_buffer_anon(size_t size, int prot,
 
 这片内存可以采用静态分配方式，也可以采用动态分配方式，前者将code_gen_buffer指向静态分配的空间，后者将code_gen_buffer指向动态分配的空间。编译时由宏USE_STATIC_CODE_GEN_BUFFER控制选用那种方式。
 
-## TranslationBlock
-
-> include/exec/exec-all.h:TranslationBlock
-> 
-> 翻译块tb用于存储翻译好的代码以及地址。code cache用于存储很多个tb，查找tb用二叉查找树，相关变量存储在tb_tc中
-
-```c
-struct TranslationBlock {
-    target_ulong pc;   /* simulated PC corresponding to this block (EIP + CS base) */
-    target_ulong cs_base; /* CS base for this block */
-    uint32_t flags; /* flags defining in which context the code was generated */
-    uint32_t cflags;    /* compile flags */
-#define CF_COUNT_MASK  0x00007fff
-#define CF_LAST_IO     0x00008000 /* Last insn may be an IO access.  */
-#define CF_MEMI_ONLY   0x00010000 /* Only instrument memory ops */
-#define CF_USE_ICOUNT  0x00020000
-#define CF_INVALID     0x00040000 /* TB is stale. Set with @jmp_lock held */
-#define CF_PARALLEL    0x00080000 /* Generate code for a parallel context */
-#define CF_CLUSTER_MASK 0xff000000 /* Top 8 bits are cluster ID */
-#define CF_CLUSTER_SHIFT 24
-
-    /* Per-vCPU dynamic tracing state used to generate this TB */
-    uint32_t trace_vcpu_dstate;
-
-    /*
-     * Above fields used for comparing
-     */
-
-    /* size of target code for this block (1 <= size <= TARGET_PAGE_SIZE) */
-    uint16_t size;
-    uint16_t icount;
-
-    struct tb_tc tc;
-
-    /* first and second physical page containing code. The lower bit
-       of the pointer tells the index in page_next[].
-       The list is protected by the TB's page('s) lock(s) */
-    uintptr_t page_next[2];
-    tb_page_addr_t page_addr[2];
-
-    /* jmp_lock placed here to fill a 4-byte hole. Its documentation is below */
-    QemuSpin jmp_lock;
-
-    /* The following data are used to directly call another TB from
-     * the code of this one. This can be done either by emitting direct or
-     * indirect native jump instructions. These jumps are reset so that the TB
-     * just continues its execution. The TB can be linked to another one by
-     * setting one of the jump targets (or patching the jump instruction). Only
-     * two of such jumps are supported.
-     */
-    uint16_t jmp_reset_offset[2]; /* offset of original jump target */
-#define TB_JMP_RESET_OFFSET_INVALID 0xffff /* indicates no jump generated */
-    uintptr_t jmp_target_arg[2];  /* target address or offset */
-
-    /*
-     * Each TB has a NULL-terminated list (jmp_list_head) of incoming jumps.
-     * Each TB can have two outgoing jumps, and therefore can participate
-     * in two lists. The list entries are kept in jmp_list_next[2]. The least
-     * significant bit (LSB) of the pointers in these lists is used to encode
-     * which of the two list entries is to be used in the pointed TB.
-     *
-     * List traversals are protected by jmp_lock. The destination TB of each
-     * outgoing jump is kept in jmp_dest[] so that the appropriate jmp_lock
-     * can be acquired from any origin TB.
-     *
-     * jmp_dest[] are tagged pointers as well. The LSB is set when the TB is
-     * being invalidated, so that no further outgoing jumps from it can be set.
-     *
-     * jmp_lock also protects the CF_INVALID cflag; a jump must not be chained
-     * to a destination TB that has CF_INVALID set.
-     */
-    uintptr_t jmp_list_head;//tb之间jump相关
-    uintptr_t jmp_list_next[2];
-    uintptr_t jmp_dest[2];
-};
-```
-
-### tb_tc
-
-> include/exec/exec-all.h:tb_tc
-> 
-> tc是中用于存储翻译缓存相关的变量，指针ptr指向翻译好的代码，翻译块对应存放在翻译缓存的代码
-> 
-> 二叉查找树，查找数据时ptr+size
-
-```c
-/*
- * Translation Cache-related fields of a TB.
- * This struct exists just for convenience; we keep track of TB's in a binary
- * search tree, and the only fields needed to compare TB's in the tree are
- * @ptr and @size.
- * Note: the address of search data can be obtained by adding @size to @ptr.
- */
-struct tb_tc {
-    const void *ptr;    /* pointer to the translated code */  //tb块翻译后保存的位置
-    size_t size;//tb块大小
-};
-```
-
 # 3.SW前端
 
-## DisasContext ，DisasContextBase
+## DisasContext
 
 > target/sw64/translate.h:DisasContext
 
 ```c
 typedef struct DisasContext DisasContext;
 struct DisasContext {
-    DisasContextBase base;//上下文头，是架构通用的。
+    DisasContextBase base;//反汇编上下文头，是架构通用的。
 
     uint32_t tbflags;
 
@@ -1139,6 +1774,8 @@ struct DisasContext {
 };
 ```
 
+### DisasContextBase
+
 ```c
 typedef struct DisasContextBase {
     const TranslationBlock *tb;
@@ -1149,279 +1786,6 @@ typedef struct DisasContextBase {
     int max_insns;
     bool singlestep_enabled;
 } DisasContextBase;
-```
-
-## tb_gen_code
-
-> accel/tcg/cpu-exec.c
-
-```c
-TranslationBlock *tb_gen_code(CPUState *cpu,
-                              target_ulong pc, target_ulong cs_base,
-                              uint32_t flags, int cflags)
-{
-    CPUArchState *env = cpu->env_ptr;//env == env_ptr
-    TranslationBlock *tb, *existing_tb;
-    tb_page_addr_t phys_pc, phys_page2;
-    target_ulong virt_page2;
-    tcg_insn_unit *gen_code_buf;
-    int gen_code_size, search_size, max_insns;
-#ifdef CONFIG_PROFILER
-    TCGProfile *prof = &tcg_ctx->prof;
-    int64_t ti;
-#endif
-
-    assert_memory_lock();
-    qemu_thread_jit_write();
-
-    phys_pc = get_page_addr_code(env, pc);
-
-    if (phys_pc == -1) {
-        /* Generate a one-shot TB with 1 insn in it */
-        cflags = (cflags & ~CF_COUNT_MASK) | CF_LAST_IO | 1;
-    }
-
-    max_insns = cflags & CF_COUNT_MASK;
-    if (max_insns == 0) {
-        max_insns = CF_COUNT_MASK;
-    }
-    if (max_insns > TCG_MAX_INSNS) {
-        max_insns = TCG_MAX_INSNS;
-    }
-    if (cpu->singlestep_enabled || singlestep) {
-        max_insns = 1;
-    }
-
- buffer_overflow:
-    tb = tcg_tb_alloc(tcg_ctx);//分配tb空间
-    if (unlikely(!tb)) {
-        /* flush must be done */
-        tb_flush(cpu);
-        mmap_unlock();
-        /* Make the execution loop process the flush as soon as possible.  */
-        cpu->exception_index = EXCP_INTERRUPT;
-        cpu_loop_exit(cpu);//异常退出
-    }
-
-    gen_code_buf = tcg_ctx->code_gen_ptr;
-    tb->tc.ptr = tcg_splitwx_to_rx(gen_code_buf);
-    tb->pc = pc;
-    tb->cs_base = cs_base;
-    tb->flags = flags;
-    tb->cflags = cflags;
-    tb->trace_vcpu_dstate = *cpu->trace_dstate;
-    tcg_ctx->tb_cflags = cflags;
- tb_overflow:
-
-#ifdef CONFIG_PROFILER
-    /* includes aborted translations because of exceptions */
-    qatomic_set(&prof->tb_count1, prof->tb_count1 + 1);
-    ti = profile_getclock();
-#endif
-
-    gen_code_size = sigsetjmp(tcg_ctx->jmp_trans, 0);
-    if (unlikely(gen_code_size != 0)) {
-        goto error_return;
-    }
-
-    tcg_func_start(tcg_ctx);
-
-    tcg_ctx->cpu = env_cpu(env);
-    gen_intermediate_code(cpu, tb, max_insns);//前端翻译函数 target code->intermediate_code
-    tcg_ctx->cpu = NULL;
-    max_insns = tb->icount;
-
-    trace_translate_block(tb, tb->pc, tb->tc.ptr);
-
-    /* generate machine code */  //后端翻译
-    tb->jmp_reset_offset[0] = TB_JMP_RESET_OFFSET_INVALID;
-    tb->jmp_reset_offset[1] = TB_JMP_RESET_OFFSET_INVALID;
-    tcg_ctx->tb_jmp_reset_offset = tb->jmp_reset_offset;
-    if (TCG_TARGET_HAS_direct_jump) {
-        tcg_ctx->tb_jmp_insn_offset = tb->jmp_target_arg;
-        tcg_ctx->tb_jmp_target_addr = NULL;
-    } else {
-        tcg_ctx->tb_jmp_insn_offset = NULL;
-        tcg_ctx->tb_jmp_target_addr = tb->jmp_target_arg;
-    }
-
-#ifdef CONFIG_PROFILER
-    qatomic_set(&prof->tb_count, prof->tb_count + 1);
-    qatomic_set(&prof->interm_time,
-                prof->interm_time + profile_getclock() - ti);
-    ti = profile_getclock();
-#endif
-
-    gen_code_size = tcg_gen_code(tcg_ctx, tb);//http://blog.chinaunix.net/uid-22954220-id-4978345.html
-    if (unlikely(gen_code_size < 0)) {
- error_return:
-        switch (gen_code_size) {
-        case -1:
-            /*
-             * Overflow of code_gen_buffer, or the current slice of it.
-             *
-             * TODO: We don't need to re-do gen_intermediate_code, nor
-             * should we re-do the tcg optimization currently hidden
-             * inside tcg_gen_code.  All that should be required is to
-             * flush the TBs, allocate a new TB, re-initialize it per
-             * above, and re-do the actual code generation.
-             */
-            qemu_log_mask(CPU_LOG_TB_OP | CPU_LOG_TB_OP_OPT,
-                          "Restarting code generation for "
-                          "code_gen_buffer overflow\n");
-            goto buffer_overflow;
-
-        case -2:
-            /*
-             * The code generated for the TranslationBlock is too large.
-             * The maximum size allowed by the unwind info is 64k.
-             * There may be stricter constraints from relocations
-             * in the tcg backend.
-             *
-             * Try again with half as many insns as we attempted this time.
-             * If a single insn overflows, there's a bug somewhere...
-             */
-            assert(max_insns > 1);
-            max_insns /= 2;
-            qemu_log_mask(CPU_LOG_TB_OP | CPU_LOG_TB_OP_OPT,
-                          "Restarting code generation with "
-                          "smaller translation block (max %d insns)\n",
-                          max_insns);
-            goto tb_overflow;
-
-        default:
-            g_assert_not_reached();
-        }
-    }
-    search_size = encode_search(tb, (void *)gen_code_buf + gen_code_size);
-    if (unlikely(search_size < 0)) {
-        goto buffer_overflow;
-    }
-    tb->tc.size = gen_code_size;
-
-#ifdef CONFIG_PROFILER
-    qatomic_set(&prof->code_time, prof->code_time + profile_getclock() - ti);
-    qatomic_set(&prof->code_in_len, prof->code_in_len + tb->size);
-    qatomic_set(&prof->code_out_len, prof->code_out_len + gen_code_size);
-    qatomic_set(&prof->search_out_len, prof->search_out_len + search_size);
-#endif
-
-#ifdef DEBUG_DISAS
-    if (qemu_loglevel_mask(CPU_LOG_TB_OUT_ASM) &&
-        qemu_log_in_addr_range(tb->pc)) {
-        FILE *logfile = qemu_log_lock();
-        int code_size, data_size;
-        const tcg_target_ulong *rx_data_gen_ptr;
-        size_t chunk_start;
-        int insn = 0;
-
-        if (tcg_ctx->data_gen_ptr) {
-            rx_data_gen_ptr = tcg_splitwx_to_rx(tcg_ctx->data_gen_ptr);
-            code_size = (const void *)rx_data_gen_ptr - tb->tc.ptr;
-            data_size = gen_code_size - code_size;
-        } else {
-            rx_data_gen_ptr = 0;
-            code_size = gen_code_size;
-            data_size = 0;
-        }
-
-        /* Dump header and the first instruction */
-        qemu_log("OUT: [size=%d]\n", gen_code_size);//-d out
-        qemu_log("  -- guest addr 0x" TARGET_FMT_lx " + tb prologue\n",
-                 tcg_ctx->gen_insn_data[insn][0]);
-        chunk_start = tcg_ctx->gen_insn_end_off[insn];
-        log_disas(tb->tc.ptr, chunk_start);
-
-        /*
-         * Dump each instruction chunk, wrapping up empty chunks into
-         * the next instruction. The whole array is offset so the
-         * first entry is the beginning of the 2nd instruction.
-         */
-        while (insn < tb->icount) {
-            size_t chunk_end = tcg_ctx->gen_insn_end_off[insn];
-            if (chunk_end > chunk_start) {
-                qemu_log("  -- guest addr 0x" TARGET_FMT_lx "\n",
-                         tcg_ctx->gen_insn_data[insn][0]);
-                log_disas(tb->tc.ptr + chunk_start, chunk_end - chunk_start);
-                chunk_start = chunk_end;
-            }
-            insn++;
-        }
-
-        if (chunk_start < code_size) {
-            qemu_log("  -- tb slow paths + alignment\n");
-            log_disas(tb->tc.ptr + chunk_start, code_size - chunk_start);
-        }
-
-        /* Finally dump any data we may have after the block */
-        if (data_size) {
-            int i;
-            qemu_log("  data: [size=%d]\n", data_size);
-            for (i = 0; i < data_size / sizeof(tcg_target_ulong); i++) {
-                qemu_log("0x%08" PRIxPTR ":  .quad  0x%" TCG_PRIlx "\n",
-                         (uintptr_t)&rx_data_gen_ptr[i], rx_data_gen_ptr[i]);
-            }
-        }
-        qemu_log("\n");
-        qemu_log_flush();
-        qemu_log_unlock(logfile);
-    }
-#endif
-
-    qatomic_set(&tcg_ctx->code_gen_ptr, (void *)
-        ROUND_UP((uintptr_t)gen_code_buf + gen_code_size + search_size,
-                 CODE_GEN_ALIGN));
-
-    /* init jump list */
-    qemu_spin_init(&tb->jmp_lock);
-    tb->jmp_list_head = (uintptr_t)NULL;
-    tb->jmp_list_next[0] = (uintptr_t)NULL;
-    tb->jmp_list_next[1] = (uintptr_t)NULL;
-    tb->jmp_dest[0] = (uintptr_t)NULL;
-    tb->jmp_dest[1] = (uintptr_t)NULL;
-
-    /* init original jump addresses which have been set during tcg_gen_code() */
-    if (tb->jmp_reset_offset[0] != TB_JMP_RESET_OFFSET_INVALID) {
-        tb_reset_jump(tb, 0);
-    }
-    if (tb->jmp_reset_offset[1] != TB_JMP_RESET_OFFSET_INVALID) {
-        tb_reset_jump(tb, 1);
-    }
-
-    /*
-     * If the TB is not associated with a physical RAM page then
-     * it must be a temporary one-insn TB, and we have nothing to do
-     * except fill in the page_addr[] fields. Return early before
-     * attempting to link to other TBs or add to the lookup table.
-     */
-    if (phys_pc == -1) {
-        tb->page_addr[0] = tb->page_addr[1] = -1;
-        return tb;
-    }
-
-    /* check next page if needed */
-    virt_page2 = (pc + tb->size - 1) & TARGET_PAGE_MASK;
-    phys_page2 = -1;
-    if ((pc & TARGET_PAGE_MASK) != virt_page2) {
-        phys_page2 = get_page_addr_code(env, virt_page2);
-    }
-    /*
-     * No explicit memory barrier is required -- tb_link_page() makes the
-     * TB visible in a consistent state.
-     */
-    existing_tb = tb_link_page(tb, phys_pc, phys_page2);
-    /* if the TB already exists, discard what we just translated */
-    if (unlikely(existing_tb != tb)) {
-        uintptr_t orig_aligned = (uintptr_t)gen_code_buf;
-
-        orig_aligned -= ROUND_UP(sizeof(*tb), qemu_icache_linesize);
-        qatomic_set(&tcg_ctx->code_gen_ptr, (void *)orig_aligned);
-        tb_destroy(tb);
-        return existing_tb;
-    }
-    tcg_tb_insert(tb);
-    return tb;
-}
 ```
 
 ## gen_intermediate_code()
@@ -1458,7 +1822,7 @@ static const TranslatorOps sw64_trans_ops = {
 };
 ```
 
-## translator_loop
+## translator_loop()
 
 void translator_loop(const TranslatorOps *ops, DisasContextBase *db,CPUState *cpu, TranslationBlock *tb, int max_insns)
 
@@ -1568,7 +1932,7 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
         }
 
         /* Stop translation if translate_insn so indicated.  */
-        if (db->is_jmp != DISAS_NEXT) {
+        if (db->is_jmp != DISAS_NEXT) {//TB块结束，不再往下翻译，退出while循环
             break;
         }
 
@@ -1602,7 +1966,7 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
 
 #ifdef DEBUG_DISAS
     if (qemu_loglevel_mask(CPU_LOG_TB_IN_ASM)
-        && qemu_log_in_addr_range(db->pc_first)) {
+        && qemu_log_in_addr_range(db->pc_first)) {//-d in_asm.
         FILE *logfile = qemu_log_lock();
         qemu_log("----------------\n");
         ops->disas_log(db, cpu);
@@ -1613,7 +1977,7 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
 }
 ```
 
-### sw64_tr_translate_insn
+### sw64_tr_translate_insn()
 
 > target/sw64/translate.c
 
@@ -1634,7 +1998,7 @@ static void sw64_tr_translate_insn(DisasContextBase *dcbase, CPUState *cpu)
 }
 ```
 
-### cpu_ldl_code
+### cpu_ldl_code()
 
 > accel/tcg/user-exec.c
 
@@ -1652,11 +2016,11 @@ uint32_t cpu_ldl_code(CPUArchState *env, abi_ptr ptr)
 
 动态翻译基本思想把一条target指令切分成若干条微操作，每条微操作由一段简单的C代码来实现，运行时通过一个动态代码生成器把这些微操作组合成一个函数，最后执行这个函数。
 
-## translate_one
+## translate_one()
 
 > target/sw64/translate.c
 
-反汇编
+反汇编、译码/解码
 
 ```c
 DisasJumpType translate_one(DisasContextBase *dcbase, uint32_t insn,CPUState *cpu)
@@ -1741,7 +2105,7 @@ ra=11101                                                                        
 
 disp21=                                                                                     0x0
 
-## gen_bdirect
+## gen_bdirect()
 
 ```c
 static DisasJumpType gen_bdirect(DisasContext *ctx, int ra, int32_t disp)
@@ -1976,11 +2340,11 @@ struct TCGContext {
     int nb_indirects;
     int nb_ops;//Mico-op个数    
 
-    /* goto_tb support */
+    /* goto_tb support */ //跳转支持goto_tb
     tcg_insn_unit *code_buf;//TB块翻译代码的开始位置,tb->tb_tc->ptr
     uint16_t *tb_jmp_reset_offset; /* tb->jmp_reset_offset */
-    uintptr_t *tb_jmp_insn_offset; /* tb->jmp_target_arg if direct_jump */
-    uintptr_t *tb_jmp_target_addr; /* tb->jmp_target_arg if !direct_jump */
+    uintptr_t *tb_jmp_insn_offset; /* tb->jmp_target_arg if direct_jump */ //支持直接跳转
+    uintptr_t *tb_jmp_target_addr; /* tb->jmp_target_arg if !direct_jump */ //不直接跳转
 
     TCGRegSet reserved_regs;//保留的寄存器
     uint32_t tb_cflags; /* cflags of the current TB */ 编译参数
@@ -2040,7 +2404,7 @@ typedef struct TCGTemp {
 
 ```c
 typedef struct TCGOpDef {//TCG操作的相关信息
-    const char *name;//TCG操作
+    const char *name;//操作码
     uint8_t nb_oargs, nb_iargs, nb_cargs, nb_args;//输出，输入，常量、参数个数
     uint8_t flags;
     TCGArgConstraint *args_ct;//输入输出参数的约束条件，非通用
@@ -2122,7 +2486,7 @@ static void cpu_gen_init(void)
 }
 ```
 
-### tcg_context_init
+### tcg_context_init()
 
 > tcg/tcg.c:tcg_context_init初始化TCGContext
 
@@ -2206,7 +2570,7 @@ void tcg_context_init(TCGContext *s)
 }
 ```
 
-### sw64_translate_init
+### sw64_translate_init()
 
 函数调用关系
 
@@ -2421,13 +2785,3 @@ Elf文件存在哪儿，中间代码放在哪儿，翻译后的host代码放在�
 重点，指令提取的图来一张，过程说明一下
 
 指令插入，操作链表，结构可以讲一下。
-
-# 日志
-
-qemu-sw64 -d in_asm,op,out_asm -cpu core3 hello > log 2>&1
-
-in_asm,op,out_asm,exec
-
-单步调试 -singlestep，每一个tb中就只有一条汇编代码，同时有很多tb没显示有汇编代码，可能是没有翻译，直接执行的？c 多少，在gdb ./hello-sw-dynamic中对应si 多少
-
-exec打印出每个tb的首地址，方便对应。
