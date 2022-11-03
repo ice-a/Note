@@ -1,3 +1,5 @@
+> qemu6-system/tcg/README
+
 # 操作码
 
 [INDEX_op_goto_tb](#jump)
@@ -8,7 +10,7 @@ INDEX_op_goto_ptr
 
 ## 函数调用
 
-### call \<ret\> \<params\> ptr
+- call \<ret\> \<params\> ptr
 
 调用函数‘ptr’（指针类型）
 
@@ -18,15 +20,15 @@ INDEX_op_goto_ptr
 
 ## 跳转/标签
 
-### set_label $label
+- set_label $label
 
 在当前程序点定义标签‘label’
 
-### br $label
+- br $label
 
 跳到标签
 
-### brcond_i32/i64 t0, t1, cond, label
+- brcond_i32/i64 t0, t1, cond, label
 
 当t0和t1条件跳转
 
@@ -44,16 +46,118 @@ Conditional jump if t0 cond t1 is true. cond can be:
 
 ## 算术
 
+* add_i32/i64 t0, t1, t2
+
+t0=t1+t2
+
+* sub_i32/i64 t0, t1, t2
+
+t0=t1-t2
+
+* neg_i32/i64 t0, t1
+
+t0=-t1 (two's complement)
+
+* mul_i32/i64 t0, t1, t2
+
+t0=t1*t2
+
+* div_i32/i64 t0, t1, t2
+
+t0=t1/t2 (signed). Undefined behavior if division by zero or overflow.
+
+* divu_i32/i64 t0, t1, t2
+
+t0=t1/t2 (unsigned). Undefined behavior if division by zero.
+
+* rem_i32/i64 t0, t1, t2
+
+t0=t1%t2 (signed). Undefined behavior if division by zero or overflow.
+
+* remu_i32/i64 t0, t1, t2
+
+t0=t1%t2 (unsigned). Undefined behavior if division by zero.
+
+## 逻辑
+
+* and_i32/i64 t0, t1, t2
+
+t0=t1&t2
+
+* or_i32/i64 t0, t1, t2
+
+t0=t1|t2
+
+* xor_i32/i64 t0, t1, t2
+
+t0=t1^t2
+
+* not_i32/i64 t0, t1
+
+t0=~t1
+
+* andc_i32/i64 t0, t1, t2
+
+t0=t1&~t2
+
+* eqv_i32/i64 t0, t1, t2
+
+t0=~(t1^t2), or equivalently, t0=t1^~t2
+
+* nand_i32/i64 t0, t1, t2
+
+t0=~(t1&t2)
+
+* nor_i32/i64 t0, t1, t2
+
+t0=~(t1|t2)
+
+* orc_i32/i64 t0, t1, t2
+
+t0=t1|~t2
+
+* clz_i32/i64 t0, t1, t2
+
+t0 = t1 ? clz(t1) : t2
+
+* ctz_i32/i64 t0, t1, t2
+
+t0 = t1 ? ctz(t1) : t2
+
+********* Shifts/Rotates
+
+* shl_i32/i64 t0, t1, t2
+
+t0=t1 << t2. Unspecified behavior if t2 < 0 or t2 >= 32 (resp 64)
+
+* shr_i32/i64 t0, t1, t2
+
+t0=t1 >> t2 (unsigned). Unspecified behavior if t2 < 0 or t2 >= 32 (resp 64)
+
+* sar_i32/i64 t0, t1, t2
+
+t0=t1 >> t2 (signed). Unspecified behavior if t2 < 0 or t2 >= 32 (resp 64)
+
+* rotl_i32/i64 t0, t1, t2
+
+Rotation of t2 bits to the left.
+Unspecified behavior if t2 < 0 or t2 >= 32 (resp 64)
+
+* rotr_i32/i64 t0, t1, t2
+
+Rotation of t2 bits to the right.
+Unspecified behavior if t2 < 0 or t2 >= 32 (resp 64)
+
 ## QEMU 特殊指令
 
-### exit_tb t0
+- exit_tb t0
 
 退出当前TB并返回值t0（字类型）。
 
-### goto_tb index<a id=‘jump’>goto_tb index</a>
+- goto_tb index<a id=‘jump’>goto_tb index</a>
 
 退出当前TB，如果当前TB链接到了TB索引‘index’（常量），则跳转到该TB，否则执行下一条指令。只有索引0和1有效，每个tb的每个slot索引最多只能发出一次tcg_gen_goto_tb。
 
-### lookup_and_goto_ptr tb_addr
+- lookup_and_goto_ptr tb_addr
 
 查找TB地址（'TB_addr'），如果有效，跳转到它。如果无效，跳转到TCG epilogue尾声，返回exec循环。此操作是可选的。如果TCG后端未实现goto_ptr操作码，则发出此操作等同于发出exit_tb（0）。

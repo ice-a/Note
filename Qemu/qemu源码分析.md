@@ -610,11 +610,11 @@ static void tcg_target_qemu_prologue(TCGContext *s)
      * Return path for goto_ptr. Set return value to 0, a-la exit_tb,
      * and fall through to the rest of the epilogue.
      */
-    tcg_code_gen_epilogue = tcg_splitwx_to_rx(s->code_ptr);
-    tcg_out_movi(s, TCG_TYPE_REG, TCG_REG_X0, 0);
+    tcg_code_gen_epilogue = tcg_splitwx_to_rx(s->code_ptr);//tcg_code_gen_epilogue=s->code_ptr
+    tcg_out_movi(s, TCG_TYPE_REG, TCG_REG_X0, 0);//mov
 
     /* TB epilogue */
-    tb_ret_addr = tcg_splitwx_to_rx(s->code_ptr);
+    tb_ret_addr = tcg_splitwx_to_rx(s->code_ptr);//tb_ret_addr=s->code_ptr
 
     /* Remove TCG locals stack space.  */
     tcg_out_insn(s, 3401, ADDI, TCG_TYPE_I64, TCG_REG_SP, TCG_REG_SP,
@@ -635,7 +635,7 @@ static void tcg_target_qemu_prologue(TCGContext *s)
 
 ### prologue代码
 
-```assembly
+```asm6502
 PROLOGUE: [size=108]
 0x2000e90e000:  subl    sp,0x40,sp
 0x2000e90e004:  stl fp,0(sp)
@@ -790,7 +790,8 @@ TCG 翻译过程中以Translation Block (TB)为单位, 它对应一组target指�
 
 ```c
 struct TranslationBlock {
-    target_ulong pc;   /* simulated PC corresponding to this block (EIP + CS base) */ //对应该TB块的模拟PC值
+    ////对应该TB块的模拟PC值,target、elf PC？
+    target_ulong pc;   /* simulated PC corresponding to this block (EIP + CS base) */ 
     target_ulong cs_base; /* CS base for this block */
     uint32_t flags; /* flags defining in which context the code was generated */
     uint32_t cflags;    /* compile flags */
@@ -1777,14 +1778,27 @@ struct DisasContext {
 ### DisasContextBase
 
 ```c
+/**
+ * DisasContextBase:
+ * @tb: Translation block for this disassembly.
+ * @pc_first: Address of first guest instruction in this TB.
+ * @pc_next: Address of next guest instruction in this TB (current during
+ *           disassembly).
+ * @is_jmp: What instruction to disassemble next.
+ * @num_insns: Number of translated instructions (including current).
+ * @max_insns: Maximum number of instructions to be translated in this TB.
+ * @singlestep_enabled: "Hardware" single stepping enabled.
+ *
+ * Architecture-agnostic disassembly context.
+ */
 typedef struct DisasContextBase {
-    const TranslationBlock *tb;
-    target_ulong pc_first;
-    target_ulong pc_next;
-    DisasJumpType is_jmp;
-    int num_insns;
-    int max_insns;
-    bool singlestep_enabled;
+    const TranslationBlock *tb;//用于反汇编的TB
+    target_ulong pc_first;//当前TB的第一条guest指令pc地址
+    target_ulong pc_next;//当前TB的下一条guest指令pc地址（现在处于反汇编）
+    DisasJumpType is_jmp;//下一个反汇编什么指令
+    int num_insns;//已翻译指令数量（包括现在的）
+    int max_insns;//在TB中即将翻译的最大指令数量
+    bool singlestep_enabled;//硬件单步开启
 } DisasContextBase;
 ```
 
@@ -1812,6 +1826,39 @@ void gen_intermediate_code(CPUState* cpu, TranslationBlock* tb, int max_insns)
 > target/sw64/translate.c
 
 ```c
+/**
+ * TranslatorOps:
+ * @init_disas_context:
+ *      Initialize the target-specific portions of DisasContext struct.
+ *      The generic DisasContextBase has already been initialized.
+ *
+ * @tb_start:
+ *      Emit any code required before the start of the main loop,
+ *      after the generic gen_tb_start().
+ *
+ * @insn_start:
+ *      Emit the tcg_gen_insn_start opcode.
+ *
+ * @breakpoint_check:
+ *      When called, the breakpoint has already been checked to match the PC,
+ *      but the target may decide the breakpoint missed the address
+ *      (e.g., due to conditions encoded in their flags).  Return true to
+ *      indicate that the breakpoint did hit, in which case no more breakpoints
+ *      are checked.  If the breakpoint did hit, emit any code required to
+ *      signal the exception, and set db->is_jmp as necessary to terminate
+ *      the main loop.
+ *
+ * @translate_insn:
+ *      Disassemble one instruction and set db->pc_next for the start
+ *      of the following instruction.  Set db->is_jmp as necessary to
+ *      terminate the main loop.
+ *
+ * @tb_stop:
+ *      Emit any opcodes required to exit the TB, based on db->is_jmp.
+ *
+ * @disas_log:
+ *      Print instruction disassembly to log.
+ */
 static const TranslatorOps sw64_trans_ops = {
     .init_disas_context = sw64_tr_init_disas_context,
     .tb_start = sw64_tr_tb_start,
@@ -1820,6 +1867,46 @@ static const TranslatorOps sw64_trans_ops = {
     .tb_stop = sw64_tr_tb_stop,
     .disas_log = sw64_tr_disas_log,
 };
+```
+
+## DisasJumpType
+
+```c
+> target\sw64\translate.h
+//我们正在退出TB到主回路
+#define DISAS_PC_UPDATED_NOCHAIN    DISAS_TARGET_0 
+//我们没有使用goto_tb（出于任何原因），但已更新了PC（出于任何理由），因此在退出tb时无需再次执行此操作。
+#define DISAS_PC_UPDATED        DISAS_TARGET_1    
+//我们正在退出TB，但既没有发出goto_TB，也没有更新PC以执行下一条指令。
+#define DISAS_PC_STALE            DISAS_TARGET_2
+#define DISAS_PC_UPDATED_T        DISAS_TOO_MANY
+> include\exec\translator.h
+/**
+ * DisasJumpType:
+ * @DISAS_NEXT: Next instruction in program order.
+ * @DISAS_TOO_MANY: Too many instructions translated.
+ * @DISAS_NORETURN: Following code is dead.
+ * @DISAS_TARGET_*: Start of target-specific conditions.
+ *
+ * What instruction to disassemble next.
+ */
+typedef enum DisasJumpType {//translate_one()的返回值，指示TB的状态
+    DISAS_NEXT,//按照程序顺序的系一条指令
+    DISAS_TOO_MANY,//翻译了太多指令
+    DISAS_NORETURN,//下面的代码死了
+    DISAS_TARGET_0,//开始目标特定的情况
+    DISAS_TARGET_1,
+    DISAS_TARGET_2,
+    DISAS_TARGET_3,
+    DISAS_TARGET_4,
+    DISAS_TARGET_5,
+    DISAS_TARGET_6,
+    DISAS_TARGET_7,
+    DISAS_TARGET_8,
+    DISAS_TARGET_9,
+    DISAS_TARGET_10,
+    DISAS_TARGET_11,
+} DisasJumpType;
 ```
 
 ## translator_loop()
@@ -1848,7 +1935,7 @@ static void sw64 _tr_init_disas_context(DisasContextBase*dcbase, CPUState *cpu)
 
 宏函数container_of通过db的地址计算dc的起始地址，赋值给局部变量DisasContext* ctx，并对*ctx成员进行初始化。
 
-(2)  、Start translating
+(2)、Start translating
 
 DisasContext*tcg_ctx 反汇编上下文，全局变量
 
@@ -1872,15 +1959,15 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
     db->max_insns = max_insns;//需要翻译的指令
     db->singlestep_enabled = cpu->singlestep_enabled;
 
-    ops->init_disas_context(db, cpu);
+    ops->init_disas_context(db, cpu);//用cpu初始化反汇编器db。
     tcg_debug_assert(db->is_jmp == DISAS_NEXT);  /* no early exit */
 
     /* Reset the temp count so that we can identify leaks */
     tcg_clear_temp_count();
 
     /* Start translating.  */
-    gen_tb_start(db->tb);//注入指令用以检查指令计数和退出条件，创建标签exitreq_label，供gen_tb_end()使用
-    ops->tb_start(db, cpu);//sw什么也没有，alpha也没有。arm有，i386没有
+    gen_tb_start(db->tb);//OP头两条，注入指令用以检查指令计数和退出条件，创建标签exitreq_label，供gen_tb_end()使用
+    ops->tb_start(db, cpu);//该函数sw空，alpha空。arm有，i386没有
     tcg_debug_assert(db->is_jmp == DISAS_NEXT);  /* no early exit */
 //宏函数，展开do { if (!(db->is_jmp == DISAS_NEXT)) { __builtin_unreachable(); } } while(0)
     plugin_enabled = plugin_gen_tb_start(cpu, tb,
@@ -1888,7 +1975,7 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
 
     while (true) {
         db->num_insns++;//翻译指令先提前加1
-        ops->insn_start(db, cpu);//INDEX_op_insn_start微操作
+        ops->insn_start(db, cpu);//INDEX_op_insn_start微操作，OP每一块的前三条。
         tcg_debug_assert(db->is_jmp == DISAS_NEXT);  /* no early exit */
 
         if (plugin_enabled) {
@@ -1953,8 +2040,8 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
     }
 
     /* Emit code to exit the TB, as indicated by db->is_jmp.  */
-    ops->tb_stop(db, cpu);
-    gen_tb_end(db->tb, db->num_insns - bp_insn);
+    ops->tb_stop(db, cpu);//
+    gen_tb_end(db->tb, db->num_insns - bp_insn);//OP最后两条
 
     if (plugin_enabled) {
         plugin_gen_tb_end(cpu);
@@ -1977,7 +2064,7 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
 }
 ```
 
-### sw64_tr_translate_insn()
+### ops->translate_insn()
 
 > target/sw64/translate.c
 
@@ -1998,7 +2085,7 @@ static void sw64_tr_translate_insn(DisasContextBase *dcbase, CPUState *cpu)
 }
 ```
 
-### cpu_ldl_code()
+#### cpu_ldl_code()
 
 > accel/tcg/user-exec.c
 
@@ -2016,7 +2103,7 @@ uint32_t cpu_ldl_code(CPUArchState *env, abi_ptr ptr)
 
 动态翻译基本思想把一条target指令切分成若干条微操作，每条微操作由一段简单的C代码来实现，运行时通过一个动态代码生成器把这些微操作组合成一个函数，最后执行这个函数。
 
-## translate_one()
+#### translate_one()
 
 > target/sw64/translate.c
 
@@ -2320,7 +2407,7 @@ typedef struct TCGOp {
 #endif
 
     /* Arguments for the opcode.  */
-    TCGArg args[MAX_OPC_PARAM];
+    TCGArg args[MAX_OPC_PARAM];//TCG操作码的参数
 
     /* Register preferences for the output(s).  */
     TCGRegSet output_pref[2];
@@ -2340,7 +2427,7 @@ struct TCGContext {
     int nb_indirects;
     int nb_ops;//Mico-op个数    
 
-    /* goto_tb support */ //跳转支持goto_tb
+    /* goto_tb support */ //goto_tb相关变量
     tcg_insn_unit *code_buf;//TB块翻译代码的开始位置,tb->tb_tc->ptr
     uint16_t *tb_jmp_reset_offset; /* tb->jmp_reset_offset */
     uintptr_t *tb_jmp_insn_offset; /* tb->jmp_target_arg if direct_jump */ //支持直接跳转
@@ -2731,27 +2818,28 @@ temps[1].mem_offset表示cc_op在CPUX86State的偏移
 
 r9的值加上偏移量得到的地址取值就是各个汇编语言中寄存器r几的值
 
-## QTAILQ，QTailQLink
+## QTAILQ，QTAILQ_ENTRY，QTailQLink
 
 > include/qemu/queue.h：QTAILQ数据结构
 
 ```c
-//队列头
+//头，TCGContext中，QTAILQ_HEAD(, TCGOp) ops;
 #define QTAILQ_HEAD(name, type)                                         \
 union name {                                                            \
         struct type *tqh_first;       /* first element */               \
         QTailQLink tqh_circ;          /* link for circular backwards list */ \
 }
-typedef struct QTailQLink {
-    void *tql_next;
-    struct QTailQLink *tql_prev;
-} QTailQLink;
-//队列实体
+//实体，TCGOp中，QTAILQ_ENTRY(TCGOp) link;
 #define QTAILQ_ENTRY(type)                                              \
 union {                                                                 \
         struct type *tqe_next;        /* next element */                \
         QTailQLink tqe_circ;          /* link for prev element */       \
 }
+//链接
+typedef struct QTailQLink {
+    void *tql_next;
+    struct QTailQLink *tql_prev;
+} QTailQLink;
 //初始化队列头
 #define QTAILQ_HEAD_INITIALIZER(head)                                   \
         { .tqh_circ = { NULL, &(head).tqh_circ } }
@@ -2767,9 +2855,12 @@ union {                                                                 \
         (head)->tqh_circ.tql_prev->tql_next = (elm);                    \
         (head)->tqh_circ.tql_prev = &(elm)->field.tqe_circ;             \
 } while (/*CONSTCOND*/0)
-QTAILQ_INSERT_TAIL(&tcg_ctx->ops, op, link);
 /*tcg_ctx是TCGContext类型指针，结构体定义了一个队列头ops。队列节点op是TCGOp类型指针，结构体定义了一个队列实体link。都是宏定义。
 双向链表，*tqe_next没用上，实际用只在队尾，相当于队列。*/
+#define QTAILQ_FOREACH(var, head, field)                                \
+        for ((var) = ((head)->tqh_first);                               \
+                (var);                                                  \
+                (var) = ((var)->field.tqe_next))
 ```
 
 # PPT

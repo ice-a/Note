@@ -204,6 +204,13 @@ alias lhl='ls -dhlF --time-style=long-iso .!(|.)' # 只显示隐藏文件详细�
 alias gdb='gdb -q'                         # gdb安静模式
 ```
 
+# cp命令
+
+```shell
+cp -p # 连同文件的属性、时间一起复制，备份常用
+# 想让文件复制过来自己是拥有者，就不切换用户直接去相关目录下复制就行。
+```
+
 # tar命令
 
 大文件传还是先tar包，再传输

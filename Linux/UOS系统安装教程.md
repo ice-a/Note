@@ -304,3 +304,5 @@ window10升级window11，查看本机没有打开tpm，进入bios没有打开tpm
 ## 3、win10 搜索
 
 win10 搜索开启高级
+
+## 4、win+L键锁屏
