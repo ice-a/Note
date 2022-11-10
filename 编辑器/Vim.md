@@ -25,6 +25,7 @@ https://qa.1r1g.com/sf/ask/1959636591/
 # 自用.vimrc
 
 ```vim
+"match Todo /SW_64\|fy\|FIXME\|sw_64/
 "显示行号
 set nu 
 "set nu=set number
@@ -53,8 +54,6 @@ filetype on
 filetype plugin on
 "为特定文件类型载入相关缩进文件
 filetype indent on
-
-"match Todo /SW_64\|luoqiaoling\|mips64\|sw_64/
 
 "制表符tab显示宽度为4
 set ts=4 "set tabstop=4

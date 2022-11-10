@@ -1,4 +1,4 @@
-# Elf格式问题
+# 1、Elf格式问题
 
 9906编译的hello的会报 Invalid ELF image for this architecture，9916的不会，不论是动态编译的还是静态编译的。
 
@@ -45,7 +45,7 @@
 > hello-sw-dynamic-9906:
 > hello
 
-# 翻译动态编译的程序问题
+# 2、翻译动态编译的程序问题
 
 执行动态编译程序时
 
@@ -280,7 +280,9 @@ sw特有的架构 /usr/include/asm/mmani.h
 
 qemu中sw分支用的是通用分支，要写定义它特有的分支，在qemu6-system/linux-user/syscall_defs.h中定义，照抄/usr/include/asm/mmani.h就行。 
 
-# 456.hmmer
+# 3、456.hmmer
+
+## 错误一：返回值非0
 
 > 报错信息：
 > 
@@ -290,61 +292,35 @@ qemu中sw分支用的是通用分支，要写定义它特有的分支，在qemu6
 > 
 > 错误类型：返回值非0
 
-参数写错了，文件打不开，现在执行到tb=2911卡住
-
-运行结果：
-
-> FATAL: tcg_qemu_tb_exec=2964
-> 
-> tcg_qemu_tb_exec=2984
-> 
-> fit failed; --num may be set too small
-> 
-> tcg_qemu_tb_exec=2985
-> 
-> tcg_qemu_tb_exec=3146
-> 
-> Inferior 1 (process 46205)exited with code 01
-
 /lib /usr/lib /usr/sw/sw....../usr/
 
 libthread_db.so->libthread_db.so.1->libthread_db-1.0.so
 
-插打印之后错误又变了，变为结果错误类型。
-
-fy上成功运行
-
-fei上还是cpoy return 0
-
-两者区别fy上编译题目用的O0，且qemu用的O0
-
-现在不插打印是copy return 0，插打印后错误地方可以执行下去，不报这个错误了，可以出结果，但是结果上mu出错。
+该错误不能稳定复现，插打印后有几率不报该错误，暂时放下，先解决第二个
 
 第76个log
+
+## 错误二：结果出错
 
 > 报错信息：
 > 
 > Miscompare of bimbesin.out;
 > 
-> 0014:HMM    :   Bombesin
-> 0015:mu        :   -5.959400
->         mu        :   -5.959401
+> 0014: HMM    :   Bombesin
+> 0015: mu        :   -5.959400
+>           mu        :   -5.959401
 >                                        ^
-> 0016:lamba   :    0.576502
-> 0017:max       :   7.707000
-> 0018://
+> 0016: lamba   :    0.576502
+> 0017: max       :   7.707000
+> 0018: //
 > 
 > 错误类型：第一行是基准，第二行是实际执行结果，箭头指向出错的地方。结果出错，应该是0，结果算成了1。
 
-定位：VCOND VCONS
+### 定位：VCOND VCONS
 
-解决方案：更改后测试用例静态编译正确执行了，动态编译仍旧会出错。spec结果仍然不对。
+### 解决方案：更改后测试用例静态编译正确执行了，动态编译仍旧会出错。spec结果仍然不对。
 
-第一个问题416题目编译不出来？
-
-第二个gdb对照有用吗，没法对照上，可以对照上吗。值差一点是有错还是对应的上？qemu就有一两次正常执行有很多个。
-
-# 416.gamess
+# 4、416.gamess
 
 > 报错信息：
 > 
@@ -357,11 +333,11 @@ fei上还是cpoy return 0
 > ERROR IN -SYMCUP- NOT ENOUGH COUPLING VECTORS FOUND.
 > EXECUTION OF GAMESS TERMINATED -ABNORMALLY- AT
 
-定位过程：
+### 定位过程：
 
-解决方案：
+### 解决方案：
 
-# 400.perlbench
+# 5、400.perlbench
 
 > 报错信息：
 > 

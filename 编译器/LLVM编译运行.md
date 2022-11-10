@@ -1,6 +1,7 @@
 # configure&make&install
 
 ```context
+sudo apt install cmake gcc g++ ninja-build git
 10. qemu6+llvm9
     10.1 first build llvm9
          on sw: git clone luo@172.16.11.127:/mnt/swllvm9.git
@@ -92,3 +93,5 @@ export LIBRARY_PATH=$LLVM_PATH/lib:$LIBRARY_PATH # 把llvm/lib添加到环境变
 > qemu代码中assertion failed 每次运行都是这一类型错误，但是位置不一样。
 
 解决方案：要有解决问题的意识，不能别人说一步动一步，自己思考解决方法的同时，都是同事，都可以向她们请教，说明错误情况和自己想采取的解决方法。高级别优化的出错就换低级别优化的，结果换了debug版本仍然不行。再试试hello能不能跑的通，动态静态的都试一试。qemu6不行，试试qemu6-system。提示是不是缺包可以下载一下？spec是怎么跑不过，是跑到哪一道题有错还是小工具不行？可以试试直接用qemu执行跑这些工具试试？都不行。
+
+cmake -G Ninja -DLLVM_ENABLE_PROJECTS="clang;compiler-rt" -DCMAKE_INSTALL_PREFIX=/usr/bin/llvm9-Debug -DCMAKE_BUILD_TYPE=Debug ../llvm
