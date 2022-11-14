@@ -1,20 +1,22 @@
+# 一、TableGen语法
+
 参考文档：[TableGen Programmer’s Reference — LLVM 15.0.0git documentation](https://llvm.org/docs/TableGen/ProgRef.html?highlight=tablegen#let-override-fields-in-classes-or-records "TableGen Programmer’s Reference — LLVM 15.0.0git documentation")
 
-# 本文中描述格式的标记符号含义
+## 本文中描述格式的标记符号含义
 
 自己理解的，不一定准确。
 
-| 符号      | 说明              |
-| ------- | --------------- |
-| `::=`   | 等价于             |
-| 双引号`""` | 字符串。            |
-| 中括号`[]` | 可选项。            |
-| 竖线 \|   | 互斥项的分隔符。 只能选择一项 |
-| 省略号 `…` | 表示范围。           |
-| 星号`*`   | 表示0个或多个         |
-| 加号`+`   | 表示1或者多个         |
+| 符号      | 说明      |
+| ------- | ------- |
+| `::=`   | 等价于     |
+| 双引号`""` | 字符串。    |
+| 中括号`[]` | 可选项。    |
+| 竖线 \    |         |
+| 省略号 `…` | 表示范围。   |
+| 星号`*`   | 表示0个或多个 |
+| 加号`+`   | 表示1或者多个 |
 
-# 1. 标识符
+## 1. 标识符
 
 标识符格式：
 
@@ -26,7 +28,7 @@ TokVarName    ::=  "$" ualpha (ualpha |  "0"..."9")*
 
 注意，与大多数语言不同，TableGen允许`TokIdentifier`以整数开头。在出现歧义的情况下，标记被解释为数字字面量，而不是标识符。
 
-## 保留关键字
+### 保留关键字
 
 ```cpp
 assert     bit           bits          class         code
@@ -38,7 +40,7 @@ multiclass string        then          true
 
 警告：`field`保留字已弃用，只有在`CodeEmitterGen`后端, 它被用来区分普通记录字段和编码字段。
 
-# 2. include关键字
+## 2. include关键字
 
 TableGen支持文件包含。包含的文件在包含的位置直接展开，然后被解析。
 
@@ -52,7 +54,7 @@ IncludeDirective ::=  "include" TokString
 PreprocessorDirective ::=  "#define" | "#ifdef" | "#ifndef"
 ```
 
-# 3. bang运算符
+## 3. bang运算符
 
 ```shell
 BangOperator ::=  one of
@@ -74,7 +76,7 @@ CondOperator ::=  !cond
 
 各bang操作符的信息请参阅 [Appendix A: Bang Operators](https://llvm.org/docs/TableGen/ProgRef.html?highlight=tablegen#appendix-a-bang-operators "Appendix A: Bang Operators")
 
-# 4. 数据类型
+## 4. 数据类型
 
 ```shell
 Type    ::=  "bit" | "int" | "string" | "dag"  
@@ -96,7 +98,7 @@ ClassID ::=  TokIdentifier
 
 - `dag`：这种类型表示节点组成的嵌套的**有向无环图(DAG)**。每个节点有一个操作符和零个或多个参数(或操作数)。参数可以是另一个dag对象，允许任意的节点和边树。例如，DAG用于表示代码生成器指令选择算法使用的代码模式。详见[有向无环图(dag)](https://llvm.org/docs/TableGen/ProgRef.html?highlight=tablegen#directed-acyclic-graphs-dags "有向无环图(dag)")
 
-- 类（`ClassID`）：在类型上下文中指定类名表示定义值的类型必须是指定类的子类。这与列表类型结合在一起很有用;例如，将列表的元素约束为一个公共基类(例如，a list<Register>只能包含从Register类派生的定义)。ClassID必须为以前声明或定义过的类名。
+- 类（`ClassID`）：在类型上下文中指定类名表示定义值的类型必须是指定类的子类。这与列表类型结合在一起很有用;例如，将列表的元素约束为一个公共基类(例如，a list只能包含从Register类派生的定义)。ClassID必须为以前声明或定义过的类名。
 
 ### 4.1 有向无环图（DAG）
 
@@ -116,11 +118,11 @@ dag实例的语法如下:
 
 其中value可以是任何TableGen值。如果该名称name存在，则必须是一个以美元符号($)开头的TokVarName。名称的作用是将DAG中的操作符或参数以特定含义标记，或将一个DAG中的参数与另一个DAG中的同名参数关联起来。
 
-# 5. 字面量，值
+## 5. 字面量，值
 
-## 5.1 字面量
+### 5.1 字面量
 
-### 5.1.1 整数字面量
+#### 5.1.1 整数字面量
 
 ```shell
 TokInteger     ::=  DecimalInteger | HexInteger | BinInteger  # 整型
@@ -131,7 +133,7 @@ BinInteger     ::=  "0b" ("0" | "1")+                         # 二进制
 
 注意， `DecimalInteger`标记包含可选的`+`或`-`符号，这与大多数语言不同，在这些语言中，符号被视为一元操作符。
 
-### 5.1.2 字符串字面量
+#### 5.1.2 字符串字面量
 
 ```shell
 TokString ::=  '"' (non-'"' characters and escapes) '"'     # 字符串中不能有双引号和空格
@@ -146,9 +148,9 @@ TokCode   ::=  "[{" (shortest text not containing "}]") "}]" #  字符串中不�
 \\ \' \" \t \n
 ```
 
-## 5.2 值
+### 5.2 值
 
-### 5.2.1 简单值
+#### 5.2.1 简单值
 
 ```shell
 Value       ::=  SimpleValue ValueSuffix* # 值='简单值'+'后缀''
@@ -197,7 +199,7 @@ RangePiece  ::=  TokInteger                     # 范围块
   ValueListNE  ::=  Value ("," Value)*
   ```
   
-  表示一个位序列，可用于初始化bits<n>类型字段(注意括号)。当这样做时，这些值必须总共代表n位。
+  表示一个位序列，可用于初始化bits类型字段(注意括号)。当这样做时，这些值必须总共代表n位。
 
 - 形式五：
   
@@ -245,7 +247,7 @@ RangePiece  ::=  TokInteger                     # 范围块
   
   bang运算符提供其他简单值不可用的函数。除了!cond的情况，bang操作符接受圆括号中包含的参数列表，并使用这些参数执行一些函数，为bang操作符生成一个值。cond操作符接受以冒号分隔的参数对列表。参见[附录A:bang操作符](https://llvm.org/docs/TableGen/ProgRef.html?highlight=tablegen#appendix-a-bang-operators "附录A:bang操作符")以了解每个bang操作符的描述。
 
-### 5.2.2 值的后缀
+#### 5.2.2 值的后缀
 
 - `value{17}`：表示整数value的第17位
 
@@ -257,7 +259,7 @@ RangePiece  ::=  TokInteger                     # 范围块
 
 - `value.field`：指定记录value中指定字段field的值。
 
-### 5.2.3 粘贴操作符
+#### 5.2.3 粘贴操作符
 
 粘贴操作符`#`是TableGen表达式中唯一可用的中缀操作符。它允许连接字符串或列表，但有一些特别的特性。
 
@@ -267,7 +269,7 @@ RangePiece  ::=  TokInteger                     # 范围块
 
 值可以有一个尾随的粘贴操作符，在这种情况下，左边的操作数连接到一个空字符串。
 
-# 6. 声明
+## 6. 声明
 
 以下语句可能出现在TableGen源文件的顶层。
 
@@ -278,7 +280,7 @@ Statement    ::=  Assert | Class | Def | Defm | Defset | Defvar
                  | Foreach | If | Let | MultiClass
 ```
 
-## 6.1 class -- 定义一个抽象记录类
+### 6.1 class -- 定义一个抽象记录类
 
 `class`语句定义了一个抽象的记录类，其他的类和记录可以**继承**这个类。
 
@@ -304,7 +306,7 @@ TemplateArgDecl ::=  Type TokIdentifier ["=" Value]                 # 模板参�
 
 每个类都有一个名为NAME(大写)的隐式模板参数，该参数绑定到继承该类的`Def`或`Defm`的名称。如果类被匿名记录继承，则名称不指定，但全局唯一。
 
-### 6.1.1 记录体
+#### 6.1.1 记录体
 
 类和记录定义中都包含记录体。记录体可以包括**父类列表**，该列表指定当前类或记录从哪些类**继承**字段。这样的类被称为类或记录的**父类**。记录体还包括**定义的主体**，其中包含类或记录的字段的说明。
 
@@ -327,13 +329,13 @@ BodyItem ::=  (Type | "code") TokIdentifier ["=" Value] ";"
 
 主体中的字段定义指定了包含在类或记录中的字段。如果没有指定初始值，则该字段的值是未初始化的。字段类型必须指定；TableGen不会从值推断类型。关键字`code`可以用来强调字段有一个字符串类型的值，这个字符串值就是编码（code）。
 
-let用于将字段重置为新值。它可以用于直接在主体中定义的字段或从父类继承的字段。一个`RangeList`可以被指定重置bit\<n>字段。
+let用于将字段重置为新值。它可以用于直接在主体中定义的字段或从父类继承的字段。一个`RangeList`可以被指定重置bit<n>字段。
 
 defvar形式定义了一个变量，它的值可以用在记录体中的其他值表达式中。变量不是字段:它不会成为正在定义的类或记录的字段。在处理记录体时，提供了用于保存临时值的变量。详情请参阅[记录体中的Defvar](https://llvm.org/docs/TableGen/ProgRef.html?highlight=tablegen#defvar-in-a-record-body "记录体中的Defvar")。
 
 当类C2继承类C1时，它获得了C1的所有字段定义。当这些定义合并到类C2中时，C2传递给C1的任何模板参数都被替换到定义中。换句话说，C1定义的抽象记录字段在合并到C2之前用模板参数展开。
 
-## 6.2 def -- 定义一个具体记录
+### 6.2 def -- 定义一个具体记录
 
 `def`语句定义了一个新的具体记录。
 
@@ -350,7 +352,7 @@ NameValue是可选的。如果指定，将以特殊模式解析它，其中未�
 
 通过在记录主体的开头指定ParentClassList子句，一条记录可以继承一个或多个类。父类中的所有字段都被添加到这条记录中。如果两个或多个父类提供相同的字段，记录使用最后一个父类的该字段值。
 
-## 6.3 let -- 重写类或者记录的字段
+### 6.3 let -- 重写类或者记录的字段
 
 `let`语句收集一组字段值(有时称为绑定)，并将它们应用于`let`语句范围内定义的所有类和记录。
 
@@ -367,7 +369,7 @@ LetItem ::=  TokIdentifier ["<" RangeList ">"] "=" Value
 
 注意，顶层`let`不会覆盖在类或记录本身定义的字段
 
-## 6.4 multiclass --定义多个记录
+### 6.4 multiclass --定义多个记录
 
 虽然带有模板参数的类是提取多个记录之间的共性的好方法，但多类可以方便的一次定义多个记录。例如，考虑一个3地址指令体系结构，它的指令有两种格式:reg = reg op reg和reg = reg op imm(例如SPARC)。我们希望在一个地方指定这两种常见格式存在，然后在另一个地方指定所有操作是怎样的。`multiclass`和`defm`语句实现了这一目标。您可以将多类看作是展开为多个记录的宏或模板。
 
@@ -388,7 +390,7 @@ def Foo ...
 def NAME # Foo ...
 ```
 
-## 6.5 defm --定义多个记录
+### 6.5 defm --定义多个记录
 
 一旦定义了多类，您就可以使用`defm`语句来“调用”它们，处理这些多类中的多个记录定义。这些记录定义由多类中的def语句指定，并由defm语句间接指定。
 
@@ -420,7 +422,7 @@ defm Foo        : SomeMultiClass<...>;
 defm NAME # Foo : SomeMultiClass<...>;
 ```
 
-### 6.5.1 示例：multiclass和defm
+#### 6.5.1 示例：multiclass和defm
 
 下面是一个使用multiclass和defm的简单示例。考虑一个3地址指令体系结构，它的指令有两种格式:reg = reg op reg和reg = reg op imm (immediate)。SPARC就是这种架构的一个例子。 
 
@@ -588,7 +590,7 @@ multiclass basic_ss <bits<4> opc> {
 defm ADD : basic_ss<0xf>;
 ```
 
-## 6.6 defset--创建一个定义集合
+### 6.6 defset--创建一个定义集合
 
 `defset`语句用于将一组记录收集到一个全局记录列表中。
 
@@ -598,13 +600,13 @@ Defset ::=  "defset" Type TokIdentifier "=" "{" Statement* "}"
 
 大括号内使用def和defm定义的所有记录都被正常定义，它们也被收集到给定名称的全局列表`TokIdentifier`中。
 
-指定的类型必须是list\<class>，其中class是某个记录类。`defset`语句为其语句建立一个作用域。在defset范围内定义非类类型的记录是错误的。
+指定的类型必须是list<class>，其中class是某个记录类。`defset`语句为其语句建立一个作用域。在defset范围内定义非类类型的记录是错误的。
 
 defset语句可以嵌套。内部的defset将记录添加到自己的集合中，所有这些记录也添加到外部集合中。
 
 匿名记录在初始化表达式中使用ClassID<...> 语法创建，该记录不会收集到集合中。
 
-## 6.7 defvar--定义一个变量
+### 6.7 defvar--定义一个变量
 
 defvar语句定义了一个全局变量。它的值可以在定义之后的语句中使用。
 
@@ -616,7 +618,7 @@ Defvar ::=  "defvar" TokIdentifier "=" Value ";"
 
 一旦定义了变量，就不能将其设置为其他值。
 
-## 6.8 foreach--遍历一个语句序列
+### 6.8 foreach--遍历一个语句序列
 
 ```shell
 Foreach         ::=  "foreach" ForeachIterator "in" "{" Statement* "}"
@@ -628,7 +630,7 @@ ForeachIterator ::=  TokIdentifier "=" ("{" RangeList "}" | RangePiece | Value)
 
 语句列表建立一个内部作用域。foreach的局部变量会在每次循环迭代结束时超出作用域，因此它们的值不会从一次迭代延续到下一次迭代。Foreach循环可以嵌套。
 
-## 6.9 if--基于一个测试的选择语句
+### 6.9 if--基于一个测试的选择语句
 
 `if`语句允许根据表达式的值选择两个语句组中的一个。
 
@@ -646,7 +648,7 @@ if的then和else分支的IfBody建立一个内部作用域。当主体完成时�
 
 if语句也可以用于记录体中。
 
-## 6.10 assert--检查一个条件为true
+### 6.10 assert--检查一个条件为true
 
 `assert`语句检查一个布尔条件以确保其为真，如果不是，则打印一条错误消息。
 
@@ -661,7 +663,7 @@ Assert ::=  "assert" condition "," message ";"
 - 在类定义中，断言由继承自该类的所有子类和记录保存和继承。然后在记录完全被构建时检查断言。
 - 在多类定义中，断言与多类的其他组件一起保存，然后在每次用defm实例化多类时检查断言。
 
-# 7. 如何构建记录
+## 7. 如何构建记录
 
 在构建记录时，TableGen会执行以下步骤。类仅仅是抽象的记录，因此要经历相同的步骤。
 
@@ -684,3 +686,161 @@ Assert ::=  "assert" condition "," message ";"
 5. 遍历所有字段以解析所有的字段间引用。
 
 6. 将记录添加到最终记录列表。
+
+# 二、.td文件与.inc文件内容的对应关系
+
+以InstrInfo 后端为例：
+
+## 1.按顺序输出指令枚举值
+
+返回目标定义的所有指令，按其枚举值排序。
+还保证以下指令顺序：
+
+a.include/llvm/Support/TargetOpcodes.def中声明的固定/通用指令按顺序。
+
+b.按名称排序的词典顺序的伪指令。
+
+c.按名称排序的词典顺序的其他指令。
+
+### 对应源码
+
+```cpp
+  OS << "#ifdef GET_INSTRINFO_ENUM\n";
+  OS << "#undef GET_INSTRINFO_ENUM\n";
+
+  OS << "namespace llvm {\n\n";
+
+  CodeGenTarget Target(Records);
+
+  // We must emit the PHI opcode first...
+  StringRef Namespace = Target.getInstNamespace();
+
+  if (Namespace.empty())
+    PrintFatalError("No instructions defined!");
+
+  OS << "namespace " << Namespace << " {\n";
+  OS << "  enum {\n";
+  unsigned Num = 0;
+  for (const CodeGenInstruction *Inst : Target.getInstructionsByEnumValue())
+    OS << "    " << Inst->TheDef->getName() << "\t= " << Num++ << ",\n";
+  OS << "    INSTRUCTION_LIST_END = " << Num << "\n";
+  OS << "  };\n\n";
+  OS << "} // end " << Namespace << " namespace\n";
+  OS << "} // end llvm namespace\n";
+  OS << "#endif // GET_INSTRINFO_ENUM\n\n";
+```
+
+### *.td
+
+> include/llvm/Support/TargetOpcodes.def
+
+```shell
+HANDLE_TARGET_OPCODE(PHI) # a 通用
+```
+
+> llvm\lib\Target\Sw64\Sw64InstrInfo.td
+
+```shell
+def PseudoBrind : PseudoInstSw64<(outs), (ins GPRC:$RB), "",
+                                 [(brind GPRC:$RB)]>,
+                  PseudoInstExpansion<(JMP R31, GPRC:$RB, 0)>,
+                  Sched<[WriteJmp]>;# b Sw64InstrInfo.td中所有继承PseudoInstSw64的记录就是伪指令
+```
+
+```shell
+def LDL  : load_ri<"ldl",  0x23, GPRC, load>;# c 真正的指令
+```
+
+### Sw64GenInstrInfo.inc
+
+```shell
+PHI    = 0,
+PseudoBrind    = 165,
+LDL    = 367,
+```
+
+## 2.指令分组，按照枚举值输出
+
+InstRW类将一组操作码映射到SchedReadWrite类型列表。
+
+继承InstRW类的匿名记录的第二个参数就是指令列表。
+
+### 对应源码
+
+```cpp
+  OS << "#ifdef GET_INSTRINFO_SCHED_ENUM\n";
+  OS << "#undef GET_INSTRINFO_SCHED_ENUM\n";
+  OS << "namespace llvm {\n\n";
+  OS << "namespace " << Namespace << " {\n";
+  OS << "namespace Sched {\n";
+  OS << "  enum {\n";
+  Num = 0;
+  for (const auto &Class : SchedModels.explicit_classes())
+    OS << "    " << Class.Name << "\t= " << Num++ << ",\n";
+  OS << "    SCHED_LIST_END = " << Num << "\n";
+  OS << "  };\n";
+  OS << "} // end Sched namespace\n";
+  OS << "} // end " << Namespace << " namespace\n";
+  OS << "} // end llvm namespace\n";
+
+  OS << "#endif // GET_INSTRINFO_SCHED_ENUM\n\n";
+```
+
+### *.td
+
+> llvm/lib/Target/Sw64/Sw64SchedCore3.td
+
+```shell
+def : InstRW<[WriteLD], (instregex "^LD(L|W|HU|BU)$")>;
+```
+
+### Sw64GenInstrInfo.inc
+
+```shell
+LDBU_LDHU_LDL_LDW    = 10,
+```
+
+## 3.输出执行指令时隐式使用（Uses）和定义（Defs）的寄存器列表。
+
+获取指令记录中的Uses字段与Defs字段，如果不为空的话输出。
+
+### 对应源码
+
+```cpp
+  for (const CodeGenInstruction *II : Target.getInstructionsByEnumValue()) {
+    Record *Inst = II->TheDef;
+    std::vector<Record*> Uses = Inst->getValueAsListOfDefs("Uses");
+    if (!Uses.empty()) {
+      unsigned &IL = EmittedLists[Uses];
+      if (!IL) PrintDefList(Uses, IL = ++ListNumber, OS);
+    }
+    std::vector<Record*> Defs = Inst->getValueAsListOfDefs("Defs");
+    if (!Defs.empty()) {
+      unsigned &IL = EmittedLists[Defs];
+      if (!IL) PrintDefList(Defs, IL = ++ListNumber, OS);
+    }
+  }
+```
+
+### *.td
+
+> llvm\lib\Target\Sw64\Sw64InstrInfo.td
+
+```shell
+let isBarrier = 1, isCall = 1, Defs = [R26], Uses = [R27, R29] in
+def PseudoCall : PseudoInstSw64<(outs), (ins GPRC:$DISP), "",
+                                [(Sw64JmpLink GPRC:$DISP)]>,
+                 PseudoInstExpansion<(JSR R26, GPRC:$DISP, 0)>,
+                 Sched<[WriteJmp]>;p]>;
+```
+
+### Sw64GenInstrInfo.inc
+
+```shell
+static const MCPhysReg ImplicitList1[] = { Sw64::R27, Sw64::R29, 0 };
+static const MCPhysReg ImplicitList2[] = { Sw64::R26, 0 };
+```
+
+## 4.输出操作数信息
+
+### Sw64GenInstrInfo.inc

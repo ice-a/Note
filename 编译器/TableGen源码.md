@@ -336,3 +336,93 @@ bool LLVMTableGenMain(raw_ostream &OS, RecordKeeper &Records) {
 }
 }
 ```
+
+EmitInstrInfo
+
+emitEnums
+
+```cpp
+void InstrInfoEmitter::emitEnums(raw_ostream &OS) {
+  OS << "#ifdef GET_INSTRINFO_ENUM\n";
+  OS << "#undef GET_INSTRINFO_ENUM\n";
+
+  OS << "namespace llvm {\n\n";
+
+  CodeGenTarget Target(Records);
+
+  // We must emit the PHI opcode first...
+  StringRef Namespace = Target.getInstNamespace();
+
+  if (Namespace.empty())
+    PrintFatalError("No instructions defined!");
+
+  OS << "namespace " << Namespace << " {\n";
+  OS << "  enum {\n";
+  unsigned Num = 0;
+  for (const CodeGenInstruction *Inst : Target.getInstructionsByEnumValue())
+    OS << "    " << Inst->TheDef->getName() << "\t= " << Num++ << ",\n";
+  OS << "    INSTRUCTION_LIST_END = " << Num << "\n";
+  OS << "  };\n\n";
+  OS << "} // end " << Namespace << " namespace\n";
+  OS << "} // end llvm namespace\n";
+  OS << "#endif // GET_INSTRINFO_ENUM\n\n";
+
+  OS << "#ifdef GET_INSTRINFO_SCHED_ENUM\n";
+  OS << "#undef GET_INSTRINFO_SCHED_ENUM\n";
+  OS << "namespace llvm {\n\n";
+  OS << "namespace " << Namespace << " {\n";
+  OS << "namespace Sched {\n";
+  OS << "  enum {\n";
+  Num = 0;
+  for (const auto &Class : SchedModels.explicit_classes())
+    OS << "    " << Class.Name << "\t= " << Num++ << ",\n";
+  OS << "    SCHED_LIST_END = " << Num << "\n";
+  OS << "  };\n";
+  OS << "} // end Sched namespace\n";
+  OS << "} // end " << Namespace << " namespace\n";
+  OS << "} // end llvm namespace\n";
+
+  OS << "#endif // GET_INSTRINFO_SCHED_ENUM\n\n";
+}
+```
+
+--gen-instr-info 后端
+
+一、排序并输出每条指令的枚举值
+
+Target.getInstructionsByEnumValue（）
+
+返回目标定义的所有指令，按其枚举值排序。
+还保证以下指令顺序：
+-include/llvm/Support/TargetOpcodes.def中声明的固定/通用指令，按顺序；
+-按名称排序的词典顺序的伪指令；Sw64InstrInfo.td中所有继承PseudoInstSw64的记录就是伪指令。
+-按名称排序的词典顺序的其他指令。与架构有关的指令
+
+二、将指令分类，并输出枚举值
+
+CodeGenSchedClass注释：
+
+调度类。
+每个指令描述都将映射到调度类。有四种类型的类：
+1） 设置了ItinClassDef的显式定义的行程类。Writes和ReadDefs为空。ProcIndices包含任何处理器的0。
+2） 一种隐含类，包含指令定义中定义的SchedWrites和SchedReads列表，它们在所有子目标中都是通用的。ProcIndices包含任何处理器的0。
+3） 一个隐含类，包含一系列InstRW记录，这些记录将指令映射到每个处理器的SchedWrites和SchedReads。InstrClassMap应将相同的指令映射到此类。ProcIndices包含为该类提供InstrRW记录的所有处理器。对于没有InstRW条目的处理器，仍可以定义ItinClassDef或写入/读取。
+4） 推断的类表示可以在运行时解析的另一类的变体。ProcIndices包含可能需要该类的一组处理器。随着变量的扩展，ProcIndex通过SchedClasses传播。可以从一个行程类别推断出多个SchedClasses。每个都从ItinRW记录中继承处理器索引，该记录将行程类映射到变量Writes或Reads
+
+第二种情况
+
+include/llvm/Target/TargetSchedule.td class InstRW
+
+将一组操作码映射到SchedReadWrite类型列表。这允许子目标轻松覆盖特定操作。SchedModel将此操作码映射绑定到处理器.
+
+/lib/Target/Sw64/Sw64SchedCore3.td中继承InstRW的匿名记录的第二个模板参数就是指令列表
+
+三、输出执行指令时隐式使用（Uses）和定义（Defs）的寄存器列表。
+
+会获取指令记录中的Uses字段与Defs字段，如果有的话输出
+
+四、操作数信息列表
+
+-1表示操作数没有固定寄存器类。
+
+0表示适用的标志。
