@@ -1,6 +1,8 @@
 # 编译方法
 
-1、git clone下载源代码，Readme.rst：公版自带，qemu的编译方法，README：自己写的，有编译参数、测试命令
+## 步骤
+
+1、git clone下载源代码。Readme.rst：公版自带，qemu的编译方法，README：自己写的，有编译参数、测试命令
 
 （编译之前改文件拥有者sudo chown -R fei:fei /home/fei/qemu-6.2.0-work1/？），configure中搜Standard options中可以看到编译选项（./configure --help）搜default_feature为默认参数。
 
@@ -36,6 +38,8 @@ disabled with --disable-FEATURE, default is enabled if available
 
 4、./config.sh配置环境（编译日志config.log），make -j40编译出可执行文件，make install安装可执行文件到指定路径下。
 
+## 命令
+
 ```shell
 mkdir build # 新建build文件夹
 cd build
@@ -43,15 +47,19 @@ vim config.sh # 新建config.sh脚本，添加configure脚本的参数
 chomd +x config.sh
 ./config.sh
 make -j40
-（sudo） make install
+(sudo) make install
 ```
 
-5、执行动态编译的程序需要拷贝对应架构的动态库到qemu编译参数的指定路径下。
+# Issue
+
+## 缺少动态库
+
+执行动态编译的程序需要拷贝对应架构的动态库到qemu编译参数的指定路径下。
 路径：--interp-prefix=/etc/qemu-binfmt/%M，或通过qemu-xx -h/-help/--help查看。
 
 以下报错均由此原因导致
 
-> 报错：
+> 报错信息：
 > 情况一：
 > 
 > qemu-x86_64:Could not open '/lib64/ld-linux-x86-64.so.2':No such file or directory
@@ -63,7 +71,7 @@ make -j40
 > /home/gao/spec2006_x86_ubuntu20.04/bin/specperl: error while loading shared libraries: libnsl.so.1: cannot open shared object file: No such file or directory.
 > spec的命令要用qemu-x86_64执行，需要动态库。
 
-6、安装md5校验
+## 编译与安装的md5校验
 
 ```shell
 # md5校验
@@ -72,6 +80,64 @@ md5sum qemu-xx
 md5sum /usr/bin/qemu-xx
 # 两个md5知不一样是因为make install中有一个stripped操作，这一步并不是每一回都有。
 ```
+
+## 工具链ld有问题
+
+> 报错信息：
+
+错误原因：系统自带的binutil，gcc8.3平时用没问题，但编译qemu会有问题，因此要重新编译。
+
+解决方案：重新编译安装binutil工具链
+
+1.编译安装binutil工具链
+
+获取binutils-2.31.1源码包，configure配置环境参数：
+
+```shell
+./configure --target=sw_64-linux-gnu --prefix=${PREFIX}/usr --with-sysroot=${PREFIX} --disable-werror --with-cpu=${CPU}
+```
+
+(./configure --target=sw_64-linux-gnu --prefix=/home/deepin/util/usr --with-sysroot=/home/deepin/util --disable-werror --with-cpu=sw6a)
+其中TARGET=sw_64-linux-gnu，PREFIX=/.. CPU=sw6a
+PREFIX 表示安装路径，自己选择
+
+```shell
+make && make install 
+```
+
+编译，安装，会在PREFIX路径下生成可执行文件
+
+2.添加环境变量
+
+```shell
+# 执行脚本
+# 方法一：
+source env.sh   
+# 方法二：
+. ./env.sh
+```
+
+> env.sh
+
+```shell
+unset PATH
+unset LD_LIBRARY_PATH # 链接器库文件路径
+unset LIBRARY_PATH    # 动态库文件路径
+export PATH=/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games:/sbin:/usr/sbin
+export LD_LIBRARY_PATH=/lib/sw_64-linux-gnu:/usr/lib/sw64-linux-gnu:$LD_LIBRARY_PATH
+export PATH=/home/deepin/util/usr/bin:$PATH # binutils安装的目录
+```
+
+注意，也可以把这些命令写进.bashrc中，这样每次登录都会执行。
+
+## 循环打印configure信息
+
+> 报错信息：
+> 
+> [0/1]Regenerating build files
+> .......
+
+本机时间太过超前，在未来。修改本机时间后，重新克隆qemu源码。
 
 # SWREACH编译器优化选项
 

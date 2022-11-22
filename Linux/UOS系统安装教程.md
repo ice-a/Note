@@ -4,11 +4,11 @@
 
 6B镜像版本：uniontechos-server-20-enterprise-1030-sw_64-20210810-1018-B5
 
-## 1.U盘启动盘制作，U盘作为系统盘启动
+## 1. U盘启动盘制作，U盘作为系统盘启动
 
 使用UltraISO格式化，写入镜像
 
-## 2.设置启动项
+## 2. 设置启动项
 
 1、插上u盘。
 
@@ -20,7 +20,7 @@
 
 4、查看有没有识别到u盘，若没有则重启，若识别到则保存并退出。
 
-## 3.进入安装界面，开始初始化系统
+## 3. 进入安装界面，开始初始化系统
 
 1、选择语言：中文、英文
 
@@ -42,11 +42,11 @@
 
 选择全盘安装
 
-## 4.重启
+## 4. 重启
 
 完成安装后，快速拔出安装介质，插上硬盘。
 
-## 5.修改用户密码与root密码
+## 5. 修改deepin用户密码与root密码
 
 ```shell
 # 修改密码
@@ -60,7 +60,7 @@ RETYPE NEW PASSWORD：
 # 注意输入密码时，想用小键盘输入的话必须先按下小键盘锁定键，否则输入的密码不是123456
 ```
 
-## 6.配置网络
+## 6. 配置网络
 
 注意有没有插上网线，不同网口对应不同的网卡。
 
@@ -80,20 +80,22 @@ ip addr （show）
 
 后续操作
 
-## 7.配置软件仓库源
+## 7. 配置软件仓库源
 
 ```shell
 # 仓库源的配置文件
 /etc/apt/sources.list 
 # 修改前先备份一下
 cp -p sources.list sources.bak
-# 这里不使用在线仓库，使用本地离线仓库。（在知识库中）
+# 修改默认的官方源，使用内网源。（在知识库中）
 vim /etc/apt/sources.list
 # 更新apt
 apt update
 ```
 
-## 8.更换内核(可选)
+## 8. 更换内核(可选)
+
+sw6b机器原版内核使用GDB会出问题，所以要换。
 
 1、下载内核包并解压
 
@@ -162,7 +164,7 @@ submenu 'Advanced options for UnionTech OS Server 20 Enterprise GNU/Linux' $menu
 }
 ```
 
-## 9.硬盘挂载(可选)
+## 9. 硬盘挂载(可选)
 
 1、单次挂载硬盘
 
@@ -182,9 +184,9 @@ blkid # 查看设备的UUID和磁盘格式
 vim /etc/fstab # 写入硬盘信息和挂载点
 ```
 
-## 10.创建用户，链接用户主目录(可选)
+## 10. 创建用户，用户主目录链接到挂载硬盘相应文件夹(可选)
 
-2、重新创建用户，并链接到/mnt相应文件夹
+重新创建用户，并链接到/mnt相应文件夹
 
 ```shell
 # 重新创建用户
@@ -198,13 +200,13 @@ sudo chown fei:fei /home/fei  # 改软链接
 sudo chown fei:fei /home/fei/ # 改文件夹内容
 ```
 
-## 10.重启ssh服务
+## 10. 重启ssh服务
 
-> 安装完毕后首次通过ssh连接提示：
+> 安装完毕后首次使用ssh连接时提示：
 > 
 > ssh: connect to host 172.16.129.114 port 22: Connection refused
 
-解决方案：重启ssh服务
+解决方案：重启ssh服务，（只有6B系统需要？原因未知）
 
 ```shell
 sudo service ssh restart 
@@ -220,7 +222,7 @@ sudo service ssh restart
 
 问题原因：deepin系统未激活，没有授权
 
-解决方案：1、向deepin要激活
+解决方案：1、向深度要deepin系统激活
 
 2、删除与该提示相关的软件（包）
 
@@ -264,14 +266,53 @@ apt install deepin-terminal
 
 解决方案：
 
+> /etc/pam.d/passwd  密码检查文件
+
 ```shell
-/etc/pam.d/passwd # 密码检查
 @include common-passwd
-/etc/pam.d/common-passwd 
-#pam_carcklib.so 是密码规则，让它用pam_unix.so这个最简单的规则。
 ```
 
-## 5、ssh断连
+> /etc/pam.d/common-passwd  密码设置规则文件
+
+```shell
+#
+# /etc/pam.d/common-password - password-related modules common to all services
+#
+# This file is included from other service-specific PAM config files,
+# and should contain a list of modules that define the services to be
+# used to change user passwords.  The default is pam_unix.
+
+# Explanation of pam_unix options:
+#
+# The "sha512" option enables salted SHA512 passwords.  Without this option,
+# the default is Unix crypt.  Prior releases used the option "md5".
+#
+# The "minlen=1" option replaces the old `OBSCURE_CHECKS_ENAB' option in
+# login.defs.
+#
+# See the pam_unix manpage for other options.
+
+# As of pam 1.0.1-6, this file is managed by pam-auth-update by default.
+# To take advantage of this, it is recommended that you configure any
+# local modules either before or after the default block, and use
+# pam-auth-update to manage selection of other modules.  See
+# pam-auth-update(8) for details.
+
+# here are the per-package modules (the "Primary" block)
+password        requisite                       pam_deepin_pw_check.so # deepin基本规则库，修改为pam_unix.so这个最简单的规则。
+password        [success=1 default=ignore]      pam_unix.so use_authtok try_first_pass sha512 minlen=1 # minlen设置密码的最小位数
+# here's the fallback if no module succeeds
+password    requisite            pam_deny.so
+# prime the stack with a positive return value if there isn't one already;
+# this avoids us returning an error just because nothing sets a success code
+# since the modules above will each just jump around
+password    required            pam_permit.so
+# and here are more per-package modules (the "Additional" block)
+password    optional    pam_gnome_keyring.so 
+# end of pam-auth-update config
+```
+
+## 5、ssh连接自动断开
 
 > 长时间没有输入，自动断开，需要重新登录：
 > 
@@ -280,13 +321,26 @@ apt install deepin-terminal
 
 解决方案：
 
+> /etc/ssh/sshd_config
+
 ```shell
-/etc/ssh/sshd_config
-# 下面两个都注释掉
-#ClientAliveInterval 900
-#ClientAliveCountMax 1
+# 下面两个
+ClientAliveInterval 900
+ClientAliveCountMax 1
+# 修改为
 ClientAliveInterval 60
 ClientAliveCountMax 3
+```
+
+# 6、查看操作系统信息
+
+```shell
+/etc/os-release   # 发行版信息
+/etc/os-version   # 操作系统版本
+/etc/product-info # 产品信息
+/proc/cpuinfo     # CPU信息
+arch              # 架构
+uname -a          # 内核版本
 ```
 
 # win10

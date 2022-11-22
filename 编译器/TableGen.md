@@ -6,15 +6,15 @@
 
 自己理解的，不一定准确。
 
-| 符号      | 说明      |
-| ------- | ------- |
-| `::=`   | 等价于     |
-| 双引号`""` | 字符串。    |
-| 中括号`[]` | 可选项。    |
-| 竖线 \    |         |
-| 省略号 `…` | 表示范围。   |
-| 星号`*`   | 表示0个或多个 |
-| 加号`+`   | 表示1或者多个 |
+| 符号      | 说明              |
+| ------- | --------------- |
+| `::=`   | 等价于             |
+| 双引号`""` | 字符串。            |
+| 中括号`[]` | 可选项。            |
+| 竖线 \|   | 互斥项的分隔符。 只能选择一项 |
+| 省略号 `…` | 表示范围。           |
+| 星号`*`   | 表示0个或多个         |
+| 加号`+`   | 表示1或者多个         |
 
 ## 1. 标识符
 
@@ -136,7 +136,7 @@ BinInteger     ::=  "0b" ("0" | "1")+                         # 二进制
 #### 5.1.2 字符串字面量
 
 ```shell
-TokString ::=  '"' (non-'"' characters and escapes) '"'     # 字符串中不能有双引号和空格
+TokString ::=  '"' (non-'"' characters and escapes) '"'     # 字符串中不能有双引号
 TokCode   ::=  "[{" (shortest text not containing "}]") "}]" #  字符串中不能有括号
 ```
 
@@ -199,7 +199,7 @@ RangePiece  ::=  TokInteger                     # 范围块
   ValueListNE  ::=  Value ("," Value)*
   ```
   
-  表示一个位序列，可用于初始化bits类型字段(注意括号)。当这样做时，这些值必须总共代表n位。
+  表示一个位序列，可用于初始化bits<n>类型字段。
 
 - 形式五：
   
@@ -233,7 +233,7 @@ RangePiece  ::=  TokInteger                     # 范围块
   SimpleValue8 ::=  ClassID "<" ValueListNE ">"
   ```
   
-  这个形式创建了一个新的匿名类(就像使用未命名def从给定的类及模板参数创建记录那样;参见def），值就是那条记录。记录的一个字段可以使用后缀获得。;参见[Suffixed Values](https://llvm.org/docs/TableGen/ProgRef.html?highlight=tablegen#suffixed-values "Suffixed Values")。
+  这个形式创建了一个新的匿名类(就像使用未命名def从给定的类及模板参数创建记录那样;参见def），值就是那条记录。记录的一个字段可以使用后缀获得。参见[Suffixed Values](https://llvm.org/docs/TableGen/ProgRef.html?highlight=tablegen#suffixed-values "Suffixed Values")。
   
   以这种方式调用类可以提供简单的子例程功能。有关更多信息，请参见[将类用作子例程](https://llvm.org/docs/TableGen/ProgRef.html?highlight=tablegen#using-classes-as-subroutines "将类用作子例程")。 
 
@@ -251,7 +251,7 @@ RangePiece  ::=  TokInteger                     # 范围块
 
 - `value{17}`：表示整数value的第17位
 
-- `value{8...15}`：整数value的第8到第15bit位的值
+- `value{8...15}`：整数value的第8到第15位的值
 
 - `value[4]`：表示列表value的第4个元素。方括号充当列表的下标操作符。只有在指定单个元素时才会出现这种情况。
 
@@ -689,20 +689,20 @@ Assert ::=  "assert" condition "," message ";"
 
 # 二、.td文件与.inc文件内容的对应关系
 
-以InstrInfo 后端为例：
+以gen-InstrInfo-后端为例：
 
-## 1.按顺序输出指令枚举值
+## 1. 按顺序输出指令枚举值
 
 返回目标定义的所有指令，按其枚举值排序。
 还保证以下指令顺序：
 
-a.include/llvm/Support/TargetOpcodes.def中声明的固定/通用指令按顺序。
+a.include/llvm/Support/TargetOpcodes.def中声明的固定/通用指令。也是伪指令？
 
-b.按名称排序的词典顺序的伪指令。
+b.按名称排序的伪指令。
 
-c.按名称排序的词典顺序的其他指令。
+c.按名称排序的其他指令。
 
-### 对应源码
+### TableGen源码
 
 ```cpp
   OS << "#ifdef GET_INSTRINFO_ENUM\n";
@@ -721,7 +721,7 @@ c.按名称排序的词典顺序的其他指令。
   OS << "namespace " << Namespace << " {\n";
   OS << "  enum {\n";
   unsigned Num = 0;
-  for (const CodeGenInstruction *Inst : Target.getInstructionsByEnumValue())
+  for (const CodeGenInstruction *Inst : Target.getInstructionsByEnumValue())//获取
     OS << "    " << Inst->TheDef->getName() << "\t= " << Num++ << ",\n";
   OS << "    INSTRUCTION_LIST_END = " << Num << "\n";
   OS << "  };\n\n";
@@ -730,42 +730,107 @@ c.按名称排序的词典顺序的其他指令。
   OS << "#endif // GET_INSTRINFO_ENUM\n\n";
 ```
 
+```cpp
+void CodeGenTarget::ComputeInstrsByEnum() const {
+  const auto &Insts = getInstructions();
+  for (const char *const *p = FixedInstrs; *p; ++p) {//从TargetOpcodes.def中依次取出指令名并去Insts中查找对应的指令记录
+    const CodeGenInstruction *Instr = GetInstByName(*p, Insts, Records);
+    assert(Instr && "Missing target independent instruction");
+    assert(Instr->Namespace == "TargetOpcode" && "Bad namespace");//应有Namespace = TargetOpcode
+    InstrsByEnum.push_back(Instr);//放入InstrsByEnum中
+  }
+  unsigned EndOfPredefines = InstrsByEnum.size();//记录固定指令数量
+  assert(EndOfPredefines == getNumFixedInstructions() &&
+         "Missing generic opcode");
+
+  for (const auto &I : Insts) {
+    const CodeGenInstruction *CGI = I.second.get();
+    if (CGI->Namespace != "TargetOpcode") {//Namespace != TargetOpcode即取出除固定指令外的所有指令
+      InstrsByEnum.push_back(CGI);//伪指令+一般指令
+      if (CGI->TheDef->getValueAsBit("isPseudo"))
+        ++NumPseudoInstructions;
+    }
+  }
+
+  assert(InstrsByEnum.size() == Insts.size() && "Missing predefined instr");
+
+  // All of the instructions are now in random order based on the map iteration.
+  llvm::sort(//排序函数：伪指令在前，一般指令在后，各按首字母排序
+      InstrsByEnum.begin() + EndOfPredefines, InstrsByEnum.end(),   // 容器从伪指令开始到结束
+      [](const CodeGenInstruction *Rec1, const CodeGenInstruction *Rec2) {
+        const auto &D1 = *Rec1->TheDef;
+        const auto &D2 = *Rec2->TheDef;
+        return std::make_tuple(!D1.getValueAsBit("isPseudo"), D1.getName()) <
+               std::make_tuple(!D2.getValueAsBit("isPseudo"), D2.getName());//比较条件{!isPseudo，name}
+      });
+}
+```
+
 ### *.td
+
+> include/llvm/Target/Target.td
+
+```shell
+# Target.td中声明了架构无关的固定指令
+def PHI : StandardPseudoInstruction { 
+  let OutOperandList = (outs unknown:$dst);
+  let InOperandList = (ins variable_ops);
+  let AsmString = "PHINODE";
+  let hasSideEffects = 0;
+}
+```
+
+> /lib/Target/Sw64/Sw64InstrInfo.td
+
+```shell
+# Sw64InstrInfo.td中所有继承PseudoInstExpansion的记录才是伪指令
+def PseudoBrind : PseudoInstSw64<(outs), (ins GPRC:$RB), "",
+                                 [(brind GPRC:$RB)]>,
+                  PseudoInstExpansion<(JMP R31, GPRC:$RB, 0)>,
+                  Sched<[WriteJmp]>; 
+# class PseudoInstSw64 伪指令集
+# outs def输出操作数列表 dag表示
+# ins  use输出操作数列表 dag表示 
+```
+
+```shell
+# 一般指令
+def LDL  : load_ri<"ldl",  0x23, GPRC, load>;
+def LOADgprel : PseudoInstSw64<(outs GPRC:$dst), (ins s64imm:$addr), "",
+    [(set GPRC:$dst, (Sw64_gprel tglobaladdr:$addr))]>, Sched<[WriteLD]>;
+```
+
+### *.inc
 
 > include/llvm/Support/TargetOpcodes.def
 
 ```shell
-HANDLE_TARGET_OPCODE(PHI) # a 通用
+HANDLE_TARGET_OPCODE(PHI) # 架构无关的固定指令，Target.td中有对应的声明
 ```
 
-> llvm\lib\Target\Sw64\Sw64InstrInfo.td
+> build/lib/Target/Sw64/Sw64GenInstrInfo.inc
 
 ```shell
-def PseudoBrind : PseudoInstSw64<(outs), (ins GPRC:$RB), "",
-                                 [(brind GPRC:$RB)]>,
-                  PseudoInstExpansion<(JMP R31, GPRC:$RB, 0)>,
-                  Sched<[WriteJmp]>;# b Sw64InstrInfo.td中所有继承PseudoInstSw64的记录就是伪指令
+PHI    = 0, # 架构无关的固定指令
+PseudoBrind    = 165, # 伪指令
+LDL    = 367, # 一般指令
 ```
 
-```shell
-def LDL  : load_ri<"ldl",  0x23, GPRC, load>;# c 真正的指令
-```
+## 2. 指令分组，按照枚举值输出
 
-### Sw64GenInstrInfo.inc
+CodeGenSchedModels（即引用SchedModels）的容器SchedClasses保存了已知的所有调度类型，CodeGenSchedClass的来源有两种，第一种来自指令定义，包括createInstRWClass()方法从InstRW定义直接得到的类型，它们优先保存在SchedClasses容器，其他推导自ItinRW，InstRW及指令定义中的SchedVariant定义。
 
-```shell
-PHI    = 0,
-PseudoBrind    = 165,
-LDL    = 367,
-```
-
-## 2.指令分组，按照枚举值输出
+每个指令描述都将映射到调度类。有四种类型的类：
+1） 设置了ItinClassDef的显式定义的行程类。Writes和ReadDefs为空。对任意处理器ProcIndices都是0（表示适用于所有的处理器）。
+2） 一条指令定义中的一组SchedWrites和SchedReads所描述的隐含类型，它们在所有子目标中都是通用的。对任意处理器ProcIndices都是0（表示适用于所有的处理器）。
+3）带有一组将指令映射到每个处理器的SchedWrites和SchedReads的InstRW隐含类。InstrClassMap应将相同的指令映射到此类。ProcIndices包含为该类提供InstrRW记录的所有处理器。对于没有InstRW条目的处理器，仍可以定义ItinClassDef或写入/读取。
+4） 推断的类表示可以在运行时解析的另一类的变体。ProcIndices包含可能需要该类的一组处理器。随着变量的扩展，ProcIndex通过SchedClasses传播。可以从一个行程类别推断出多个SchedClasses。每个都从ItinRW记录中继承处理器索引，该记录将行程类映射到变量Writes或Reads
 
 InstRW类将一组操作码映射到SchedReadWrite类型列表。
 
-继承InstRW类的匿名记录的第二个参数就是指令列表。
+继承InstRW类的匿名记录（调度类型）的第二个参数就是指令列表。
 
-### 对应源码
+### TableGen源码
 
 ```cpp
   OS << "#ifdef GET_INSTRINFO_SCHED_ENUM\n";
@@ -794,17 +859,20 @@ InstRW类将一组操作码映射到SchedReadWrite类型列表。
 def : InstRW<[WriteLD], (instregex "^LD(L|W|HU|BU)$")>;
 ```
 
-### Sw64GenInstrInfo.inc
+### *.inc
+
+> build/lib/Target/Sw64/Sw64GenInstrInfo.inc
 
 ```shell
-LDBU_LDHU_LDL_LDW    = 10,
+WriteJmp    = 1,# 通过指令定义得到的调度类型，这一指令使用执行步骤Jmp，资源使用情况由Write描述
+LDBU_LDHU_LDL_LDW    = 10, # InstRW定义的调度类型
 ```
 
-## 3.输出执行指令时隐式使用（Uses）和定义（Defs）的寄存器列表。
+## 3. 输出执行指令时隐式使用（Uses）和定义（Defs）的寄存器列表。
 
 获取指令记录中的Uses字段与Defs字段，如果不为空的话输出。
 
-### 对应源码
+### TableGen源码
 
 ```cpp
   for (const CodeGenInstruction *II : Target.getInstructionsByEnumValue()) {
@@ -834,13 +902,179 @@ def PseudoCall : PseudoInstSw64<(outs), (ins GPRC:$DISP), "",
                  Sched<[WriteJmp]>;p]>;
 ```
 
-### Sw64GenInstrInfo.inc
+### *.inc
+
+> build/lib/Target/Sw64/Sw64GenInstrInfo.inc
 
 ```shell
 static const MCPhysReg ImplicitList1[] = { Sw64::R27, Sw64::R29, 0 };
 static const MCPhysReg ImplicitList2[] = { Sw64::R26, 0 };
 ```
 
-## 4.输出操作数信息
+## 4. 输出操作数信息
 
-### Sw64GenInstrInfo.inc
+### TableGen源码
+
+```cpp
+void InstrInfoEmitter::EmitOperandInfo(raw_ostream &OS,
+                                       OperandInfoMapTy &OperandInfoIDs) {
+  // ID #0 is for no operand info.
+  unsigned OperandListNum = 0;
+  OperandInfoIDs[std::vector<std::string>()] = ++OperandListNum;//容器的第一项不使用
+
+  OS << "\n";
+  const CodeGenTarget &Target = CDP.getTargetInfo();
+  for (const CodeGenInstruction *Inst : Target.getInstructionsByEnumValue()) {
+    std::vector<std::string> OperandInfo = GetOperandInfo(*Inst);
+    unsigned &N = OperandInfoIDs[OperandInfo];
+    if (N != 0) continue;
+
+    N = ++OperandListNum;
+    OS << "static const MCOperandInfo OperandInfo" << N << "[] = { ";
+    for (const std::string &Info : OperandInfo)
+      OS << "{ " << Info << " }, ";
+    OS << "};\n";
+  }
+}
+```
+
+```cpp
+std::vector<std::string>
+InstrInfoEmitter::GetOperandInfo(const CodeGenInstruction &Inst) {
+  std::vector<std::string> Result;
+
+  for (auto &Op : Inst.Operands) {
+    // Handle aggregate operands and normal operands the same way by expanding
+    // either case into a list of operands for this op.
+    std::vector<CGIOperandList::OperandInfo> OperandList;
+
+    // This might be a multiple operand thing.  Targets like X86 have
+    // registers in their multi-operand operands.  It may also be an anonymous
+    // operand, which has a single operand, but no declared class for the
+    // operand.
+    //这可能是一个多操作数的问题。像X86这样的目标在其多操作数操作数中有寄存器。
+    //它也可以是一个匿名操作数，它有一个操作数，但没有为该操作数声明类。
+    DagInit *MIOI = Op.MIOperandInfo;//微操作数。一个操作数可能由多个微操作数组成。
+
+    if (!MIOI || MIOI->getNumArgs() == 0) {//无微操作数即单个操作数
+      // Single, anonymous, operand.  
+      OperandList.push_back(Op);
+    } else {//具有子操作数
+      for (unsigned j = 0, e = Op.MINumOperands; j != e; ++j) {
+        OperandList.push_back(Op);
+
+        auto *OpR = cast<DefInit>(MIOI->getArg(j))->getDef();
+        OperandList.back().Rec = OpR;
+      }
+    }
+
+    for (unsigned j = 0, e = OperandList.size(); j != e; ++j) {
+      Record *OpR = OperandList[j].Rec;
+      std::string Res;
+
+      if (OpR->isSubClassOf("RegisterOperand"))
+        OpR = OpR->getValueAsDef("RegClass");//返回RegClass字段的值
+      if (OpR->isSubClassOf("RegisterClass"))
+        Res += getQualifiedName(OpR) + "RegClassID, ";
+      else if (OpR->isSubClassOf("PointerLikeRegClass"))
+        Res += utostr(OpR->getValueAsInt("RegClassKind")) + ", ";
+      else
+        // -1 means the operand does not have a fixed register class.
+        //-1表示操作数没有固定寄存器类。
+        Res += "-1, ";
+
+      // Fill in applicable flags.
+      // 填写适用的标志。
+      Res += "0";
+
+      // Ptr value whose register class is resolved via callback.
+      //通过回调解析其寄存器类的Ptr值。
+      if (OpR->isSubClassOf("PointerLikeRegClass"))
+        Res += "|(1<<MCOI::LookupPtrRegClass)";
+
+      // Predicate operands.  Check to see if the original unexpanded operand
+      // was of type PredicateOp.
+      //谓词操作数。检查原始未展开操作数的类型是否为PredicateOp。
+      if (Op.Rec->isSubClassOf("PredicateOp"))
+        Res += "|(1<<MCOI::Predicate)";
+
+      // Optional def operands.  Check to see if the original unexpanded operand
+      // was of type OptionalDefOperand.
+      // 可选的def操作数。检查原始未展开操作数的类型是否为OptionalDefOperand。
+      if (Op.Rec->isSubClassOf("OptionalDefOperand"))
+        Res += "|(1<<MCOI::OptionalDef)";
+
+      // Fill in operand type.
+      //填写操作数类型。
+      Res += ", ";
+      assert(!Op.OperandType.empty() && "Invalid operand type.");
+      Res += Op.OperandType;
+
+      // Fill in constraint info.
+      //填写约束信息。
+      Res += ", ";
+
+      const CGIOperandList::ConstraintInfo &Constraint =
+        Op.Constraints[j];
+      if (Constraint.isNone())
+        Res += "0";
+      else if (Constraint.isEarlyClobber())
+        Res += "(1 << MCOI::EARLY_CLOBBER)";
+      else {
+        assert(Constraint.isTied());
+        Res += "((" + utostr(Constraint.getTiedOperand()) +
+                    " << 16) | (1 << MCOI::TIED_TO))";
+      }
+
+      Result.push_back(Res);
+    }
+  }
+
+  return Result;
+}
+```
+
+```cpp
+//===----------------------------------------------------------------------===//
+// Machine Operand Flags and Description
+//===----------------------------------------------------------------------===//
+
+namespace MCOI {
+// Operand constraints
+enum OperandConstraint {
+  TIED_TO = 0,  // Must be allocated the same register as.
+  EARLY_CLOBBER // Operand is an early clobber register operand
+};
+
+/// These are flags set on operands, but should be considered
+/// private, all access should go through the MCOperandInfo accessors.
+/// See the accessors for a description of what these are.
+enum OperandFlags { LookupPtrRegClass = 0, Predicate, OptionalDef };
+
+/// Operands are tagged with one of the values of this enum.
+enum OperandType {
+  OPERAND_UNKNOWN = 0,
+  OPERAND_IMMEDIATE = 1,
+  OPERAND_REGISTER = 2,
+  OPERAND_MEMORY = 3,
+  OPERAND_PCREL = 4,
+
+  OPERAND_FIRST_GENERIC = 6,
+  OPERAND_GENERIC_0 = 6,
+  OPERAND_GENERIC_1 = 7,
+  OPERAND_GENERIC_2 = 8,
+  OPERAND_GENERIC_3 = 9,
+  OPERAND_GENERIC_4 = 10,
+  OPERAND_GENERIC_5 = 11,
+  OPERAND_LAST_GENERIC = 11,
+
+  OPERAND_FIRST_TARGET = 12,
+};
+}
+```
+
+### *.inc
+
+> build/lib/Target/Sw64/Sw64GenInstrInfo.inc
+
+## 5.

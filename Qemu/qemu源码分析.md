@@ -2744,7 +2744,7 @@ void sw64_translate_init(void)
 #endif
     };
     cpu_pc = tcg_global_mem_new_i64(cpu_env,
-                                    offsetof(CPUSW64State, pc), "PC");//pc
+                                    offsetof(CPUSW64State, pc), "PC");//程序计数器
 
 #undef DEF_VAR
 

@@ -1,4 +1,4 @@
-# configure&make&install
+# 编译运行方法
 
 ```context
 sudo apt install cmake gcc g++ ninja-build git
@@ -94,4 +94,15 @@ export LIBRARY_PATH=$LLVM_PATH/lib:$LIBRARY_PATH # 把llvm/lib添加到环境变
 
 解决方案：要有解决问题的意识，不能别人说一步动一步，自己思考解决方法的同时，都是同事，都可以向她们请教，说明错误情况和自己想采取的解决方法。高级别优化的出错就换低级别优化的，结果换了debug版本仍然不行。再试试hello能不能跑的通，动态静态的都试一试。qemu6不行，试试qemu6-system。提示是不是缺包可以下载一下？spec是怎么跑不过，是跑到哪一道题有错还是小工具不行？可以试试直接用qemu执行跑这些工具试试？都不行。
 
+```shell
 cmake -G Ninja -DLLVM_ENABLE_PROJECTS="clang;compiler-rt" -DCMAKE_INSTALL_PREFIX=/usr/bin/llvm9-Debug -DCMAKE_BUILD_TYPE=Debug ../llvm
+```
+
+https://blog.csdn.net/zhongyunde/article/details/109013865
+
+1、utils/gdb-scripts/prettyprinters.py gdb数据结构llvm编写了自己的一些实用的类stl库，没有配置过的gdb没法直观的显示这些数据结构的内容
+   在llvm仓下 ./utils/gdb-scripts/prettyprinters.py， 在~/.gdbinit中添加source ${path}/prettyprinters.py,就可以较为直观的显示了
+
+2、在utils/vim/syntax/目录下有2个vim语法高亮文件llvm.vim tablegen.vim, 分别对应这llvm的IR(*.ll)以及tablegen(*.td)文件语法高亮, 将2个文件移入~/.vim/syntax/中并在~/.vimrc中添加utils/vim/vimrc
+
+3、utils/TableGen/tdtags

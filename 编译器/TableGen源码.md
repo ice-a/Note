@@ -404,8 +404,8 @@ CodeGenSchedClass注释：
 
 调度类。
 每个指令描述都将映射到调度类。有四种类型的类：
-1） 设置了ItinClassDef的显式定义的行程类。Writes和ReadDefs为空。ProcIndices包含任何处理器的0。
-2） 一种隐含类，包含指令定义中定义的SchedWrites和SchedReads列表，它们在所有子目标中都是通用的。ProcIndices包含任何处理器的0。
+1） 设置了ItinClassDef的显式定义的行程类。Writes和ReadDefs为空。对任意处理器ProcIndices都是0（表示适用于所有的处理器）。
+2） 一种隐含类，包含指令定义中定义的SchedWrites和SchedReads列表，它们在所有子目标中都是通用的。对任意处理器ProcIndices都是0（表示适用于所有的处理器）。
 3） 一个隐含类，包含一系列InstRW记录，这些记录将指令映射到每个处理器的SchedWrites和SchedReads。InstrClassMap应将相同的指令映射到此类。ProcIndices包含为该类提供InstrRW记录的所有处理器。对于没有InstRW条目的处理器，仍可以定义ItinClassDef或写入/读取。
 4） 推断的类表示可以在运行时解析的另一类的变体。ProcIndices包含可能需要该类的一组处理器。随着变量的扩展，ProcIndex通过SchedClasses传播。可以从一个行程类别推断出多个SchedClasses。每个都从ItinRW记录中继承处理器索引，该记录将行程类映射到变量Writes或Reads
 
@@ -426,3 +426,52 @@ include/llvm/Target/TargetSchedule.td class InstRW
 -1表示操作数没有固定寄存器类。
 
 0表示适用的标志。
+
+```cpp
+class MCOperandInfo {
+public:
+  /// This specifies the register class enumeration of the operand
+  /// if the operand is a register.  If isLookupPtrRegClass is set, then this is
+  /// an index that is passed to TargetRegisterInfo::getPointerRegClass(x) to
+  /// get a dynamic register class.
+  //如果操作数是寄存器，则指定操作数的寄存器类枚举。
+  //如果设置了isLookupPtrRegClass，则这是传递给
+  //TargetRegisterInfo:：getPointerRegClass（x）以获取动态寄存器类的索引。
+  int16_t RegClass;
+
+  /// These are flags from the MCOI::OperandFlags enum.
+  uint8_t Flags;
+
+  /// Information about the type of the operand.
+  uint8_t OperandType;
+  /// The lower 16 bits are used to specify which constraints are set.
+  /// The higher 16 bits are used to specify the value of constraints (4 bits
+  /// each).
+  uint32_t Constraints;
+
+  /// Set if this operand is a pointer value and it requires a callback
+  /// to look up its register class.
+  //设置此操作数是否为指针值，并且需要回调来查找其寄存器类。
+  bool isLookupPtrRegClass() const {
+    return Flags & (1 << MCOI::LookupPtrRegClass);
+  }
+
+  /// Set if this is one of the operands that made up of the predicate
+  /// operand that controls an isPredicable() instruction.
+  //设置这是否是由控制isPredical（）指令的谓词操作数组成的操作数之一。
+  bool isPredicate() const { return Flags & (1 << MCOI::Predicate); }
+
+  /// Set if this operand is a optional def.
+  bool isOptionalDef() const { return Flags & (1 << MCOI::OptionalDef); }
+
+  bool isGenericType() const {
+    return OperandType >= MCOI::OPERAND_FIRST_GENERIC &&
+           OperandType <= MCOI::OPERAND_LAST_GENERIC;
+  }
+
+  unsigned getGenericTypeIndex() const {
+    assert(isGenericType() && "non-generic types don't have an index");
+    return OperandType - MCOI::OPERAND_FIRST_GENERIC;
+  }
+};
+```

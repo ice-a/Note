@@ -45,7 +45,7 @@
 > hello-sw-dynamic-9906:
 > hello
 
-# 2、翻译动态编译的程序问题
+# 2、翻译动态编译的hello程序问题
 
 执行动态编译程序时
 
@@ -309,16 +309,20 @@ libthread_db.so->libthread_db.so.1->libthread_db-1.0.so
 > 0014: HMM    :   Bombesin
 > 0015: mu        :   -5.959400
 >           mu        :   -5.959401
->                                        ^
+>                                          ^
 > 0016: lamba   :    0.576502
 > 0017: max       :   7.707000
 > 0018: //
 > 
 > 错误类型：第一行是基准，第二行是实际执行结果，箭头指向出错的地方。结果出错，应该是0，结果算成了1。
 
-### 定位：VCOND VCONS
+### 定位过程：
 
-### 解决方案：更改后测试用例静态编译正确执行了，动态编译仍旧会出错。spec结果仍然不对。
+VCOND VCONS 
+
+### 解决方案：
+
+指令执行步骤对应的函数顺序错误，参数错误。
 
 # 4、416.gamess
 
@@ -335,7 +339,11 @@ libthread_db.so->libthread_db.so.1->libthread_db-1.0.so
 
 ### 定位过程：
 
+NINT函数 四舍五入函数 faddd指令翻译helper函数
+
 ### 解决方案：
+
+关闭simple-float选项
 
 # 5、400.perlbench
 
@@ -347,6 +355,28 @@ libthread_db.so->libthread_db.so.1->libthread_db-1.0.so
 > BEGIN failed--compilation aborted at lib/mhamain.pl line 59.
 > Compilation failed in require at splitmail.pl line 51.
 
-定位过程：
+## 定位过程：
 
-解决方案：
+系统调用出错
+
+相关C函数：
+
+getpid() getppid()
+
+getuid() geteuid()
+
+getgid() getegid()
+
+相关系统调用：
+
+不同机器上这些函数翻译成的指令有所不同
+
+6A:113 系统调用名 
+
+6B:114 系统调用名 
+
+6B:121 系统调用名 getpid getuid getgid
+
+## 解决方案：
+
+相关系统调用宏未定义，TARGET宏未定义，系统调用代码未实现
