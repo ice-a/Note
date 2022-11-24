@@ -95,7 +95,7 @@ apt update
 
 ## 8. 更换内核(可选)
 
-sw6b机器原版内核使用GDB会出问题，所以要换。
+sw6b机器原版内核，使用GDB运行大型程序时会出问题，所以要更换内核。
 
 1、下载内核包并解压
 
@@ -332,10 +332,10 @@ ClientAliveInterval 60
 ClientAliveCountMax 3
 ```
 
-# 6、查看操作系统信息
+# 6、查看机器信息
 
 ```shell
-/etc/os-release   # 发行版信息
+/etc/os-release   # 操作系统发行版信息
 /etc/os-version   # 操作系统版本
 /etc/product-info # 产品信息
 /proc/cpuinfo     # CPU信息

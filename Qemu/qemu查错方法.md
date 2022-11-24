@@ -172,6 +172,10 @@ info symbol FUN    //查函数与哪个可执行文件有关
 
 可以调试a.out进入glibc或者ld，同时在错误位置前后插打印，以此调试qemu定位错误的位置。
 
+# 报段错误？
+
+ld指令取地址，但寄存器中存的不是地址，也就是前几条指令没有往寄存器中存入正确的地址。
+
 # 日志
 
 qemu-sw64 -d in_asm,op,out_asm -cpu core3 hello > log 2>&1

@@ -86,19 +86,19 @@ Type    ::=  "bit" | "int" | "string" | "dag"
 ClassID ::=  TokIdentifier
 ```
 
-- 位类型（`bit`）：表示一个值为0或者1的布尔值。
+- `bit`：位类型。表示一个值为0或者1的布尔值。
 
-- 整型（`int`）：表示64位整型数。
+- `int`：整型。表示64位整型数。
 
-- 字符串类型（`string`）：表示任意长度的有序字符序列。
+- `string`：字符串类型。表示任意长度的有序字符序列。
 
-- 位类型（`bits<n>`）：表示位宽固定为`n`的整数，`n`可以为任意值。这`n`个位可以单独访问。这种类型的字段用于表示指令操作代码、寄存器号或地址模式/寄存器/位移。字段的位可以单独设置，也可以作为子字段设置。例如，在指令地址中，寻址模式、基址寄存器号和位移可以分别设置。
+- `bits<n>`：位类型。表示位宽固定为`n`的整数，`n`可以为任意值。这`n`个位可以单独访问。这种类型的字段用于表示指令操作代码、寄存器号或地址模式/寄存器/位移。字段的位可以单独设置，也可以作为子字段设置。例如，在指令地址中，寻址模式、基址寄存器号和位移可以分别设置。
 
-- 列表（`list<type>`）：表示一个列表，其元素为`<>`中指定的类型`type`。元素类型是任意的；它甚至可以是另一种列表类型。列表元素索引下标从0开始。 
+- `list<type>`：列表。表示一个列表，其元素为`<>`中指定的类型`type`。元素类型是任意的；它甚至可以是另一种列表类型。列表元素索引下标从0开始。 
 
-- `dag`：这种类型表示节点组成的嵌套的**有向无环图(DAG)**。每个节点有一个操作符和零个或多个参数(或操作数)。参数可以是另一个dag对象，允许任意的节点和边树。例如，DAG用于表示代码生成器指令选择算法使用的代码模式。详见[有向无环图(dag)](https://llvm.org/docs/TableGen/ProgRef.html?highlight=tablegen#directed-acyclic-graphs-dags "有向无环图(dag)")
+- `dag`：有向无环图。表示节点组成的嵌套的**有向无环图(DAG)**。每个节点有一个操作符和零个或多个参数(或操作数)。参数可以是另一个dag对象，允许任意的节点和边树。例如，DAG用于表示代码生成器指令选择算法使用的代码模式。详见[有向无环图(dag)](https://llvm.org/docs/TableGen/ProgRef.html?highlight=tablegen#directed-acyclic-graphs-dags "有向无环图(dag)")
 
-- 类（`ClassID`）：在类型上下文中指定类名表示定义值的类型必须是指定类的子类。这与列表类型结合在一起很有用;例如，将列表的元素约束为一个公共基类(例如，a list只能包含从Register类派生的定义)。ClassID必须为以前声明或定义过的类名。
+- `ClassID`：类。在类型上下文中指定类名表示定义值的类型必须是指定类的子类。这与列表类型结合在一起很有用;例如，将列表的元素约束为一个公共基类(例如，a list只能包含从Register类派生的定义)。ClassID必须为以前声明或定义过的类名。
 
 ### 4.1 有向无环图（DAG）
 
@@ -106,7 +106,7 @@ ClassID ::=  TokIdentifier
 
 dag实例的语法如下:
 
-                              (operator argument1, argument2，…)
+                              (操作符 参数1，参数2，…)
 
 操作符必须呈现并且必须有记录。可以有零个或多个参数，用逗号分隔。操作符和参数可以有三种格式。
 
@@ -136,7 +136,7 @@ BinInteger     ::=  "0b" ("0" | "1")+                         # 二进制
 #### 5.1.2 字符串字面量
 
 ```shell
-TokString ::=  '"' (non-'"' characters and escapes) '"'     # 字符串中不能有双引号
+TokString ::=  '"' (non-'"' characters and escapes) '"'      # 字符串中不能有双引号
 TokCode   ::=  "[{" (shortest text not containing "}]") "}]" #  字符串中不能有括号
 ```
 
@@ -689,9 +689,719 @@ Assert ::=  "assert" condition "," message ";"
 
 # 二、.td文件与.inc文件内容的对应关系
 
+## 指令相关描述
+
+### 1、指令格式
+
+#### InstructionEncoding、Instruction
+
+所有指令共有的信息
+
+> include/llvm/Target/Target.td
+
+```cpp
+class InstructionEncoding {
+  // Size of encoded instruction.
+  int Size;
+
+  // The "namespace" in which this instruction exists, on targets like ARM
+  // which multiple ISA namespaces exist.
+  string DecoderNamespace = "";
+
+  // List of predicates which will be turned into isel matching code.
+  list<Predicate> Predicates = [];
+
+  string DecoderMethod = "";
+
+  // Is the instruction decoder method able to completely determine if the
+  // given instruction is valid or not. If the TableGen definition of the
+  // instruction specifies bitpattern A??B where A and B are static bits, the
+  // hasCompleteDecoder flag says whether the decoder method fully handles the
+  // ?? space, i.e. if it is a final arbiter for the instruction validity.
+  // If not then the decoder attempts to continue decoding when the decoder
+  // method fails.
+  //
+  // This allows to handle situations where the encoding is not fully
+  // orthogonal. Example:
+  // * InstA with bitpattern 0b0000????,
+  // * InstB with bitpattern 0b000000?? but the associated decoder method
+  //   DecodeInstB() returns Fail when ?? is 0b00 or 0b11.
+  //
+  // The decoder tries to decode a bitpattern that matches both InstA and
+  // InstB bitpatterns first as InstB (because it is the most specific
+  // encoding). In the default case (hasCompleteDecoder = 1), when
+  // DecodeInstB() returns Fail the bitpattern gets rejected. By setting
+  // hasCompleteDecoder = 0 in InstB, the decoder is informed that
+  // DecodeInstB() is not able to determine if all possible values of ?? are
+  // valid or not. If DecodeInstB() returns Fail the decoder will attempt to
+  // decode the bitpattern as InstA too.
+  bit hasCompleteDecoder = 1;
+}
+class Instruction : InstructionEncoding {
+  string Namespace = "";
+
+  dag OutOperandList;       // An dag containing the MI def operand list.
+  dag InOperandList;        // An dag containing the MI use operand list.
+  string AsmString = "";    // The .s format to print the instruction with.
+
+  // Pattern - Set to the DAG pattern for this instruction, if we know of one,
+  // otherwise, uninitialized.
+  list<dag> Pattern;
+
+  // The follow state will eventually be inferred automatically from the
+  // instruction pattern.
+
+  list<Register> Uses = []; // Default to using no non-operand registers
+  list<Register> Defs = []; // Default to modifying no non-operand registers
+
+  // Predicates - List of predicates which will be turned into isel matching
+  // code.
+  list<Predicate> Predicates = [];
+
+  // Size - Size of encoded instruction, or zero if the size cannot be determined
+  // from the opcode.
+  int Size = 0;
+
+  // Code size, for instruction selection.
+  // FIXME: What does this actually mean?
+  int CodeSize = 0;
+
+  // Added complexity passed onto matching pattern.
+  int AddedComplexity  = 0;
+
+  // These bits capture information about the high-level semantics of the
+  // instruction.
+  bit isReturn     = 0;     // Is this instruction a return instruction?
+  bit isBranch     = 0;     // Is this instruction a branch instruction?
+  bit isEHScopeReturn = 0;  // Does this instruction end an EH scope?
+  bit isIndirectBranch = 0; // Is this instruction an indirect branch?
+  bit isCompare    = 0;     // Is this instruction a comparison instruction?
+  bit isMoveImm    = 0;     // Is this instruction a move immediate instruction?
+  bit isMoveReg    = 0;     // Is this instruction a move register instruction?
+  bit isBitcast    = 0;     // Is this instruction a bitcast instruction?
+  bit isSelect     = 0;     // Is this instruction a select instruction?
+  bit isBarrier    = 0;     // Can control flow fall through this instruction?
+  bit isCall       = 0;     // Is this instruction a call instruction?
+  bit isAdd        = 0;     // Is this instruction an add instruction?
+  bit isTrap       = 0;     // Is this instruction a trap instruction?
+  bit canFoldAsLoad = 0;    // Can this be folded as a simple memory operand?
+  bit mayLoad      = ?;     // Is it possible for this inst to read memory?
+  bit mayStore     = ?;     // Is it possible for this inst to write memory?
+  bit mayRaiseFPException = 0; // Can this raise a floating-point exception?
+  bit isConvertibleToThreeAddress = 0;  // Can this 2-addr instruction promote?
+  bit isCommutable = 0;     // Is this 3 operand instruction commutable?
+  bit isTerminator = 0;     // Is this part of the terminator for a basic block?
+  bit isReMaterializable = 0; // Is this instruction re-materializable?
+  bit isPredicable = 0;     // 1 means this instruction is predicable
+                            // even if it does not have any operand
+                            // tablegen can identify as a predicate
+  bit isUnpredicable = 0;   // 1 means this instruction is not predicable
+                            // even if it _does_ have a predicate operand
+  bit hasDelaySlot = 0;     // Does this instruction have an delay slot?
+  bit usesCustomInserter = 0; // Pseudo instr needing special help.
+  bit hasPostISelHook = 0;  // To be *adjusted* after isel by target hook.
+  bit hasCtrlDep   = 0;     // Does this instruction r/w ctrl-flow chains?
+  bit isNotDuplicable = 0;  // Is it unsafe to duplicate this instruction?
+  bit isConvergent = 0;     // Is this instruction convergent?
+  bit isAsCheapAsAMove = 0; // As cheap (or cheaper) than a move instruction.
+  bit hasExtraSrcRegAllocReq = 0; // Sources have special regalloc requirement?
+  bit hasExtraDefRegAllocReq = 0; // Defs have special regalloc requirement?
+  bit isRegSequence = 0;    // Is this instruction a kind of reg sequence?
+                            // If so, make sure to override
+                            // TargetInstrInfo::getRegSequenceLikeInputs.
+  bit isPseudo     = 0;     // Is this instruction a pseudo-instruction?
+                            // If so, won't have encoding information for
+                            // the [MC]CodeEmitter stuff.
+  bit isExtractSubreg = 0;  // Is this instruction a kind of extract subreg?
+                             // If so, make sure to override
+                             // TargetInstrInfo::getExtractSubregLikeInputs.
+  bit isInsertSubreg = 0;   // Is this instruction a kind of insert subreg?
+                            // If so, make sure to override
+                            // TargetInstrInfo::getInsertSubregLikeInputs.
+  bit variadicOpsAreDefs = 0; // Are variadic operands definitions?
+
+  // Does the instruction have side effects that are not captured by any
+  // operands of the instruction or other flags?
+  bit hasSideEffects = ?;
+
+  // Is this instruction a "real" instruction (with a distinct machine
+  // encoding), or is it a pseudo instruction used for codegen modeling
+  // purposes.
+  // FIXME: For now this is distinct from isPseudo, above, as code-gen-only
+  // instructions can (and often do) still have encoding information
+  // associated with them. Once we've migrated all of them over to true
+  // pseudo-instructions that are lowered to real instructions prior to
+  // the printer/emitter, we can remove this attribute and just use isPseudo.
+  //
+  // The intended use is:
+  // isPseudo: Does not have encoding information and should be expanded,
+  //   at the latest, during lowering to MCInst.
+  //
+  // isCodeGenOnly: Does have encoding information and can go through to the
+  //   CodeEmitter unchanged, but duplicates a canonical instruction
+  //   definition's encoding and should be ignored when constructing the
+  //   assembler match tables.
+  bit isCodeGenOnly = 0;
+
+  // Is this instruction a pseudo instruction for use by the assembler parser.
+  bit isAsmParserOnly = 0;
+
+  // This instruction is not expected to be queried for scheduling latencies
+  // and therefore needs no scheduling information even for a complete
+  // scheduling model.
+  bit hasNoSchedulingInfo = 0;
+
+  InstrItinClass Itinerary = NoItinerary;// Execution steps used for scheduling.
+
+  // Scheduling information from TargetSchedule.td.
+  list<SchedReadWrite> SchedRW;
+
+  string Constraints = "";  // OperandConstraint, e.g. $src = $dst.
+
+  /// DisableEncoding - List of operand names (e.g. "$op1,$op2") that should not
+  /// be encoded into the output machineinstr.
+  string DisableEncoding = "";
+
+  string PostEncoderMethod = "";
+
+  /// Target-specific flags. This becomes the TSFlags field in TargetInstrDesc.
+  bits<64> TSFlags = 0;
+
+  ///@name Assembler Parser Support
+  ///@{
+
+  string AsmMatchConverter = "";
+
+  /// TwoOperandAliasConstraint - Enable TableGen to auto-generate a
+  /// two-operand matcher inst-alias for a three operand instruction.
+  /// For example, the arm instruction "add r3, r3, r5" can be written
+  /// as "add r3, r5". The constraint is of the same form as a tied-operand
+  /// constraint. For example, "$Rn = $Rd".
+  string TwoOperandAliasConstraint = "";
+
+  /// Assembler variant name to use for this instruction. If specified then
+  /// instruction will be presented only in MatchTable for this variant. If
+  /// not specified then assembler variants will be determined based on
+  /// AsmString
+  string AsmVariantName = "";
+
+  ///@}
+
+  /// UseNamedOperandTable - If set, the operand indices of this instruction
+  /// can be queried via the getNamedOperandIdx() function which is generated
+  /// by TableGen.
+  bit UseNamedOperandTable = 0;
+
+  /// Should FastISel ignore this instruction. For certain ISAs, they have
+  /// instructions which map to the same ISD Opcode, value type operands and
+  /// instruction selection predicates. FastISel cannot handle such cases, but
+  /// SelectionDAG can.
+  bit FastISelShouldIgnore = 0;
+}
+
+/// PseudoInstExpansion - Expansion information for a pseudo-instruction.
+/// Which instruction it expands to and how the operands map from the
+/// pseudo.
+class PseudoInstExpansion<dag Result> {
+  dag ResultInst = Result;     // The instruction to generate. 生成的指令
+  bit isPseudo = 1;
+}
+
+
+/// ops definition - This is just a simple marker used to identify the operand
+/// list for an instruction. outs and ins are identical both syntactically and
+/// semantically; they are used to define def operands and use operands to
+/// improve readibility. This should be used like this:
+///     (outs R32:$dst), (ins R32:$src1, R32:$src2) or something similar.
+def ops;
+def outs;
+def ins;
+```
+
+#### InstSw64 基本指令格式
+
+sw指令格式，五种基本指令格式
+
+参考：sw指令手册 2.6 指令格式 
+
+> lib/Target/Sw64/Sw64InstrFormats.td
+
+```cpp
+// Sw64 instruction baseline
+class InstSw64<bits<6> op, string opstr, string operands> : Instruction {
+  field bits<32> Inst; //32位指令
+  let Namespace = "Sw64";
+  let Inst{31-26} = op;
+
+  let AsmString = opstr # " " # operands;//汇编指令字符串=操作码 操作数
+  // ZHAIYH20181122_For_CodeEmit ; Add Size: Number of bytes in encoding
+  let Size = 4;
+  // SoftFail is a field the disassembler can use to provide a way for
+  // instructions to not match without killing the whole decode process. It is
+  // mainly used for ARM, but Tablegen expects this field to exist or it fails
+  // to build the decode table.
+  field bits<32> SoftFail = 0;
+}
+// Pseudo instructions. 伪指令格式父类
+class PseudoInstSw64<dag oops, dag iops, string opstr="", list<dag> pattern> 
+    : InstSw64<0, opstr, "">  {//无操作码
+  let OutOperandList = oops;//def输出操作数列表
+  let InOperandList = iops;//use输出操作数列表
+  let Pattern = pattern;//模式匹配
+  let isCodeGenOnly = 1;
+}
+
+// LDL/LDW     Chapter2.6.3
+// Memory  |31     26|25      21|20      16|15               0|
+//         |  Opcode |   RA/Fa  |    RB    |        disp      |
+class MForm<bits<6> opcode, dag iops, dag oops,
+            string opstr, string operands="", list<dag> pattern=[]> 
+    : InstSw64<opcode, opstr, operands> {
+  let Pattern = pattern;
+  let OutOperandList = oops;
+  let InOperandList = iops;
+
+  bits<5> RA;
+  bits<16> DISP;
+  bits<5> RB;
+
+  let Inst{25-21} = RA;
+  let Inst{20-16} = RB;
+  let Inst{15-0} = DISP;
+}
+```
+
+#### 具体指令格式 指令记录
+
+参考：sw指令手册 4 基本指令系统
+
+> lib/Target/Sw64/Sw64InstrFormats.td
+
+```cpp
+//4.3 load and store instruction
+//4.3.1 load integer
+
+let hasSideEffects = 0, mayLoad = 1, mayStore = 0 in
+class load_ri<string opstr, bits<6> opcode, RegisterClass regtype,
+              SDPatternOperator loadop>
+    : MForm<opcode, (ins s64imm:$DISP, GPRC:$RB), (outs regtype:$RA),
+            opstr, "$RA,${DISP}(${RB})",
+            [(set regtype:$RA,
+                (loadop (add GPRC:$RB, immSExt16:$DISP)))]>;
+
+let hasSideEffects = 0, mayLoad = 0, mayStore = 1 in
+class store_ri<string opstr, bits<6> opcode, RegisterClass regtype,
+               SDPatternOperator storeop>
+    : MForm<opcode, (ins regtype:$RA, s64imm:$DISP, GPRC:$RB), (outs),
+            opstr, "$RA,${DISP}(${RB})",
+            [(storeop regtype:$RA,
+               (add GPRC:$RB, immSExt16:$DISP))]>;
+// integer load
+def LDL  : load_ri<"ldl",  0x23, GPRC, load>;
+def LDW  : load_ri<"ldw",  0x22, GPRC, sextloadi32>;
+def LDHU : load_ri<"ldhu", 0x21, GPRC, zextloadi16>;
+def LDBU : load_ri<"ldbu", 0x20, GPRC, zextloadi8>;
+...
+```
+
+### 2、操作数
+
+#### DAGOperand Operand
+
+> include/llvm/Target/Target.td
+
+```cpp
+// DAGOperand - An empty base class that unifies RegisterClass's and other forms
+// of Operand's that are legal as type qualifiers in DAG patterns.  This should
+// only ever be used for defining multiclasses that are polymorphic over both
+// RegisterClass's and other Operand's.
+class DAGOperand {
+  string OperandNamespace = "MCOI";
+  string DecoderMethod = "";
+}
+/// Operand Types - These provide the built-in operand types that may be used
+/// by a target.  Targets can optionally provide their own operand types as
+/// needed, though this should not be needed for RISC targets.
+class Operand<ValueType ty> : DAGOperand {
+  ValueType Type = ty;
+  string PrintMethod = "printOperand";
+  string EncoderMethod = "";
+  bit hasCompleteDecoder = 1;
+  string OperandType = "OPERAND_UNKNOWN";
+  dag MIOperandInfo = (ops);
+
+  // MCOperandPredicate - Optionally, a code fragment operating on
+  // const MCOperand &MCOp, and returning a bool, to indicate if
+  // the value of MCOp is valid for the specific subclass of Operand
+  code MCOperandPredicate;
+
+  // ParserMatchClass - The "match class" that operands of this type fit
+  // in. Match classes are used to define the order in which instructions are
+  // match, to ensure that which instructions gets matched is deterministic.
+  //
+  // The target specific parser must be able to classify an parsed operand into
+  // a unique class, which does not partially overlap with any other classes. It
+  // can match a subset of some other class, in which case the AsmOperandClass
+  // should declare the other operand as one of its super classes.
+  AsmOperandClass ParserMatchClass = ImmAsmOperand;
+}
+```
+
+#### 具体操作数
+
+> lib/Target/Sw64/Sw64InstrFormats.td
+
+```cpp
+def u8imm   : Operand<i64>{
+  let DecoderMethod = "decodeUImmOperand<8>";
+}
+def s8imm   : Operand<i64>{
+  let DecoderMethod = "decodeSImmOperand<8>";
+}
+def s14imm  : Operand<i64>{
+  let DecoderMethod = "decodeSImmOperand<14>";
+}
+def s16imm  : Operand<i64>{
+  let DecoderMethod = "decodeSImmOperand<16>";
+  let OperandType = "OPERAND_PCREL";
+}
+def s21imm  : Operand<i64>{
+  let DecoderMethod = "decodeSImmOperand<21>";
+  let OperandType = "OPERAND_PCREL";
+}
+def s64imm  : Operand<i64>{//64位立即数 操作数
+  let DecoderMethod = "decodeSImmOperand<64>";
+  let PrintMethod = "printMemoryArg";
+}
+def u64imm  : Operand<i64>{
+  let DecoderMethod = "decodeSImmOperand<64>";
+}
+```
+
+### 3、寄存器
+
+#### RegisterClass Register
+
+> include/llvm/Target/Target.td
+
+```cpp
+// Register file description - These classes are used to fill in the target
+// description classes.
+
+class RegisterClass; // Forward def 
+
+// Register - You should define one instance of this class for each register
+// in the target machine.  String n will become the "name" of the register.
+class Register<string n, list<string> altNames = []> {
+  string Namespace = "";
+  string AsmName = n;
+  list<string> AltNames = altNames;
+
+  // Aliases - A list of registers that this register overlaps with.  A read or
+  // modification of this register can potentially read or modify the aliased
+  // registers.
+  list<Register> Aliases = [];
+
+  // SubRegs - A list of registers that are parts of this register. Note these
+  // are "immediate" sub-registers and the registers within the list do not
+  // themselves overlap. e.g. For X86, EAX's SubRegs list contains only [AX],
+  // not [AX, AH, AL].
+  list<Register> SubRegs = [];
+
+  // SubRegIndices - For each register in SubRegs, specify the SubRegIndex used
+  // to address it. Sub-sub-register indices are automatically inherited from
+  // SubRegs.
+  list<SubRegIndex> SubRegIndices = [];
+
+  // RegAltNameIndices - The alternate name indices which are valid for this
+  // register.
+  list<RegAltNameIndex> RegAltNameIndices = [];
+
+  // DwarfNumbers - Numbers used internally by gcc/gdb to identify the register.
+  // These values can be determined by locating the <target>.h file in the
+  // directory llvmgcc/gcc/config/<target>/ and looking for REGISTER_NAMES.  The
+  // order of these names correspond to the enumeration used by gcc.  A value of
+  // -1 indicates that the gcc number is undefined and -2 that register number
+  // is invalid for this mode/flavour.
+  list<int> DwarfNumbers = [];
+
+  // CostPerUse - Additional cost of instructions using this register compared
+  // to other registers in its class. The register allocator will try to
+  // minimize the number of instructions using a register with a CostPerUse.
+  // This is used by the x86-64 and ARM Thumb targets where some registers
+  // require larger instruction encodings.
+  int CostPerUse = 0;
+
+  // CoveredBySubRegs - When this bit is set, the value of this register is
+  // completely determined by the value of its sub-registers.  For example, the
+  // x86 register AX is covered by its sub-registers AL and AH, but EAX is not
+  // covered by its sub-register AX.
+  bit CoveredBySubRegs = 0;
+
+  // HWEncoding - The target specific hardware encoding for this register.
+  bits<16> HWEncoding = 0;
+
+  bit isArtificial = 0;
+}
+```
+
+#### Sw64寄存器 具体寄存器 寄存器类
+
+> lib/Target/Sw64/Sw64RegisterInfo.td
+
+```shell
+let Namespace = "Sw64" in {
+// ZHAIYH20181123_For_CodeEmit : For register encoding
+class Sw64Reg<bits<16> Enc, string n, list<string> alt= []> : Register<n> {
+   let HWEncoding = Enc;
+   let AltNames = alt;
+}
+
+// GPR - One of the 32 32-bit general-purpose registers
+class Sw64GPR<bits<16> Enc, string n, list<string> alt= []> : Sw64Reg<Enc, n, alt>;
+// FPR - One of the 32 64-bit floating-point registers
+class Sw64FPR<bits<16> Enc, string n, list<string> alt= []> : Sw64Reg<Enc, n, alt>;
+
+class Sw64VEC<bits<16> Enc, string n, list<string> alt= []> : Sw64Reg<Enc, n, alt>;
+
+} //Namespace Sw64  
+
+
+// General-purpose registers
+def R0 : Sw64GPR< 0, "$0">, DwarfRegNum<[0]>; 
+...
+
+
+/// Register classes
+def GPRC : RegisterClass<"Sw64", [i64], 64, (add
+     // Volatile
+     R0, R1, R2, R3, R4, R5, R6, R7, R8, R16, R17, R18, R19, R20, R21, R22,
+     R23, R24, R25, R28,
+     //Special meaning, but volatile
+     R27, //procedure address
+     R26, //return address
+     R29, //global offset table address
+     // Non-volatile
+     R9, R10, R11, R12, R13, R14,
+// Don't allocate 15, 30, 31
+     R15, R30, R31)>; //zero
+```
+
+### 4、Selection DAG
+
+#### SDNodeProperty SDPatternOperator
+
+> include/llvm/CodeGen/SDNodeProperties.td
+
+```cpp
+class SDNodeProperty;
+
+// Selection DAG Pattern Operations
+class SDPatternOperator {
+  list<SDNodeProperty> Properties = [];//具有的属性
+}
+
+//===----------------------------------------------------------------------===//
+// Selection DAG Node Properties.
+//
+// Note: These are hard coded into tblgen.
+//
+def SDNPCommutative : SDNodeProperty;   // X op Y == Y op X
+def SDNPAssociative : SDNodeProperty;   // (X op Y) op Z == X op (Y op Z)
+def SDNPHasChain    : SDNodeProperty;   // R/W chain operand and result
+def SDNPOutGlue     : SDNodeProperty;   // Write a flag result
+def SDNPInGlue      : SDNodeProperty;   // Read a flag operand
+def SDNPOptInGlue   : SDNodeProperty;   // Optionally read a flag operand
+def SDNPMayStore    : SDNodeProperty;   // May write to memory, sets 'mayStore'.
+def SDNPMayLoad     : SDNodeProperty;   // May read memory, sets 'mayLoad'.
+def SDNPSideEffect  : SDNodeProperty;   // Sets 'HasUnmodelledSideEffects'.
+def SDNPMemOperand  : SDNodeProperty;   // Touches memory, has assoc MemOperand
+def SDNPVariadic    : SDNodeProperty;   // Node has variable arguments.
+def SDNPWantRoot    : SDNodeProperty;   // ComplexPattern gets the root of match
+def SDNPWantParent  : SDNodeProperty;   // ComplexPattern gets the parent
+```
+
+#### SDNode
+
+> include/llvm/Target/TargetSelectionDAG.td
+
+```cpp
+// Selection DAG Node definitions.
+class SDNode<string opcode, SDTypeProfile typeprof,
+             list<SDNodeProperty> props = [], string sdclass = "SDNode">
+             : SDPatternOperator {
+  string Opcode  = opcode;//操作码
+  string SDClass = sdclass;
+  let Properties = props;//具有的属性
+  SDTypeProfile TypeProfile = typeprof;
+}
+
+// Special TableGen-recognized dag nodes
+def set;
+def add        : SDNode<"ISD::ADD"       , SDTIntBinOp   ,
+                        [SDNPCommutative, SDNPAssociative]>;// 加法操作
+def brind      : SDNode<"ISD::BRIND"      , SDTBrind,  [SDNPHasChain]>; //指令、微操作？
+```
+
+### 5、模式匹配片段
+
+#### PatFrags
+
+> include/llvm/Target/TargetSelectionDAG.td
+
+```cpp
+/// PatFrags - Represents a set of pattern fragments.  Each single fragment
+/// can match something on the DAG, from a single node to multiple nested other
+/// fragments.   The whole set of fragments matches if any of the single
+/// fragemnts match.  This allows e.g. matching and "add with overflow" and
+/// a regular "add" with the same fragment set.
+///
+class PatFrags<dag ops, list<dag> frags, code pred = [{}],
+               SDNodeXForm xform = NOOP_SDNodeXForm> : SDPatternOperator {
+  dag Operands = ops;
+  list<dag> Fragments = frags;
+  code PredicateCode = pred;
+  code GISelPredicateCode = [{}];
+  code ImmediateCode = [{}];
+  SDNodeXForm OperandTransform = xform;
+
+  // When this is set, the PredicateCode may refer to a constant Operands
+  // vector which contains the captured nodes of the DAG, in the order listed
+  // by the Operands field above.
+  //
+  // This is useful when Fragments involves associative / commutative
+  // operators: a single piece of code can easily refer to all operands even
+  // when re-associated / commuted variants of the fragment are matched.
+  bit PredicateCodeUsesOperands = 0;
+
+  // Define a few pre-packaged predicates. This helps GlobalISel import
+  // existing rules from SelectionDAG for many common cases.
+  // They will be tested prior to the code in pred and must not be used in
+  // ImmLeaf and its subclasses.
+
+  // Is the desired pre-packaged predicate for a load?
+  bit IsLoad = ?;
+  // Is the desired pre-packaged predicate for a store?
+  bit IsStore = ?;
+  // Is the desired pre-packaged predicate for an atomic?
+  bit IsAtomic = ?;
+
+  // cast<LoadSDNode>(N)->getAddressingMode() == ISD::UNINDEXED;
+  // cast<StoreSDNode>(N)->getAddressingMode() == ISD::UNINDEXED;
+  bit IsUnindexed = ?;
+
+  // cast<LoadSDNode>(N)->getExtensionType() != ISD::NON_EXTLOAD
+  bit IsNonExtLoad = ?;
+  // cast<LoadSDNode>(N)->getExtensionType() == ISD::EXTLOAD;
+  bit IsAnyExtLoad = ?;
+  // cast<LoadSDNode>(N)->getExtensionType() == ISD::SEXTLOAD;
+  bit IsSignExtLoad = ?;
+  // cast<LoadSDNode>(N)->getExtensionType() == ISD::ZEXTLOAD;
+  bit IsZeroExtLoad = ?;
+  // !cast<StoreSDNode>(N)->isTruncatingStore();
+  // cast<StoreSDNode>(N)->isTruncatingStore();
+  bit IsTruncStore = ?;
+
+  // cast<MemSDNode>(N)->getAddressSpace() ==
+  // If this empty, accept any address space.
+  list<int> AddressSpaces = ?;
+
+  // cast<AtomicSDNode>(N)->getOrdering() == AtomicOrdering::Monotonic
+  bit IsAtomicOrderingMonotonic = ?;
+  // cast<AtomicSDNode>(N)->getOrdering() == AtomicOrdering::Acquire
+  bit IsAtomicOrderingAcquire = ?;
+  // cast<AtomicSDNode>(N)->getOrdering() == AtomicOrdering::Release
+  bit IsAtomicOrderingRelease = ?;
+  // cast<AtomicSDNode>(N)->getOrdering() == AtomicOrdering::AcquireRelease
+  bit IsAtomicOrderingAcquireRelease = ?;
+  // cast<AtomicSDNode>(N)->getOrdering() == AtomicOrdering::SequentiallyConsistent
+  bit IsAtomicOrderingSequentiallyConsistent = ?;
+
+  // isAcquireOrStronger(cast<AtomicSDNode>(N)->getOrdering())
+  // !isAcquireOrStronger(cast<AtomicSDNode>(N)->getOrdering())
+  bit IsAtomicOrderingAcquireOrStronger = ?;
+
+  // isReleaseOrStronger(cast<AtomicSDNode>(N)->getOrdering())
+  // !isReleaseOrStronger(cast<AtomicSDNode>(N)->getOrdering())
+  bit IsAtomicOrderingReleaseOrStronger = ?;
+
+  // cast<LoadSDNode>(N)->getMemoryVT() == MVT::<VT>;
+  // cast<StoreSDNode>(N)->getMemoryVT() == MVT::<VT>;
+  ValueType MemoryVT = ?;
+  // cast<LoadSDNode>(N)->getMemoryVT().getScalarType() == MVT::<VT>;
+  // cast<StoreSDNode>(N)->getMemoryVT().getScalarType() == MVT::<VT>;
+  ValueType ScalarMemoryVT = ?;
+
+  // TODO: Add alignment
+}
+
+// PatFrag - A version of PatFrags matching only a single fragment.
+class PatFrag<dag ops, dag frag, code pred = [{}],
+              SDNodeXForm xform = NOOP_SDNodeXForm>
+  : PatFrags<ops, [frag], pred, xform>;
+```
+
+PatFrags-表示一组模式片段。每一个片段都可以匹配DAG上的某些内容，从单个节点到多个嵌套的其他片段。如果任何一个片段匹配，则整个片段集匹配。这允许例如匹配和“带溢出的加法”，以及具有相同片段集的常规“加法”
+
+#### 片段实例
+
+> lib/Target/Sw64/Sw64InstrInfo.td
+
+```cpp
+def immSExt16  : PatLeaf<(imm), [{ //imm fits in 16 bit sign extended field
+  return ((int64_t)N->getZExtValue() << 48) >> 48 ==
+         (int64_t)N->getZExtValue();
+}]>;//扩展为64位
+```
+
+> include/llvm/Target/TargetSelectionDAG.td
+
+```cpp
+// load fragments.
+def load : PatFrag<(ops node:$ptr), (unindexedload node:$ptr)> {
+  let IsLoad = 1;
+  let IsNonExtLoad = 1;
+}
+```
+
+### 6、调度模型
+
+> include/llvm/Target/TargetSchedule.td
+
+```cpp
+// List the per-operand types that map to the machine model of an
+// instruction. One SchedWrite type must be listed for each explicit
+// def operand in order. Additional SchedWrite types may optionally be
+// listed for implicit def operands.  SchedRead types may optionally
+// be listed for use operands in order. The order of defs relative to
+// uses is insignificant. This way, the same SchedReadWrite list may
+// be used for multiple forms of an operation. For example, a
+// two-address instruction could have two tied operands or single
+// operand that both reads and writes a reg. In both cases we have a
+// single SchedWrite and single SchedRead in any order. 
+class Sched<list<SchedReadWrite> schedrw> {
+  list<SchedReadWrite> SchedRW = schedrw;
+}
+```
+
+列出映射到一条指令的机器模型的每个操作数类型。必须按顺序为每个显式def操作数列出一个SchedWrite类型。可以选择为隐式def操作数列出其他SchedWrite类型。可以选择按顺序列出SchedRead类型以使用操作数。def的顺序相对于use的顺序来说无关紧要。这样，同一个ScheduleReadWrite列表可以用于一条操作的多种形式。例如，双地址指令可以有两个绑定操作数或一个同时读取和写入寄存器reg的操作数。在这两种情况下，我们都有一个任意顺序的SchedWrite和一个SchedRead。
+
+### 指令示例
+
+> lib/Target/Sw64/Sw64InstrInfo.td
+
+```cpp
+def PseudoBrind : PseudoInstSw64<(outs), (ins GPRC:$RB), "",
+                                 [(brind GPRC:$RB)]>,
+                  PseudoInstExpansion<(JMP R31, GPRC:$RB, 0)>, 
+                  Sched<[WriteJmp]>;
+// 生成的伪指令JMP R31, GPRC:$RB, 0 为什么是R31？寄存器有限制
+def LDL  : load_ri<"ldl",  0x23, GPRC, load>;
+```
+
 以gen-InstrInfo-后端为例：
 
-## 1. 按顺序输出指令枚举值
+## 1. 指令排序，输出指令枚举值
 
 返回目标定义的所有指令，按其枚举值排序。
 还保证以下指令顺序：
@@ -771,16 +1481,33 @@ void CodeGenTarget::ComputeInstrsByEnum() const {
 > include/llvm/Target/Target.td
 
 ```shell
-# Target.td中声明了架构无关的固定指令
+# Target.td中声明了架构无关的固定指令，标准伪指令
+// Standard Pseudo Instructions.
+// This list must match TargetOpcodes.def.
+// Only these instructions are allowed in the TargetOpcode namespace.
+// Ensure mayLoad and mayStore have a default value, so as not to break
+// targets that set guessInstructionProperties=0. Any local definition of
+// mayLoad/mayStore takes precedence over these default values.
+class StandardPseudoInstruction : Instruction {
+  let mayLoad = 0;
+  let mayStore = 0;
+  let isCodeGenOnly = 1;
+  let isPseudo = 1;
+  let hasNoSchedulingInfo = 1;
+  let Namespace = "TargetOpcode";
+}
 def PHI : StandardPseudoInstruction { 
   let OutOperandList = (outs unknown:$dst);
   let InOperandList = (ins variable_ops);
   let AsmString = "PHINODE";
   let hasSideEffects = 0;
 }
+...
 ```
 
-> /lib/Target/Sw64/Sw64InstrInfo.td
+标准伪指令。此列表必须与TargetOpcodes.def匹配。TargetOpcode命名空间中只允许这些指令。确保mayLoad和mayStore具有默认值，以便不破坏将guessInstructionProperties设置为0的目标。mayLoad/mayStore的任何本地定义都优先于这些默认值。
+
+> lib/Target/Sw64/Sw64InstrInfo.td
 
 ```shell
 # Sw64InstrInfo.td中所有继承PseudoInstExpansion的记录才是伪指令
@@ -788,9 +1515,6 @@ def PseudoBrind : PseudoInstSw64<(outs), (ins GPRC:$RB), "",
                                  [(brind GPRC:$RB)]>,
                   PseudoInstExpansion<(JMP R31, GPRC:$RB, 0)>,
                   Sched<[WriteJmp]>; 
-# class PseudoInstSw64 伪指令集
-# outs def输出操作数列表 dag表示
-# ins  use输出操作数列表 dag表示 
 ```
 
 ```shell
@@ -816,7 +1540,7 @@ PseudoBrind    = 165, # 伪指令
 LDL    = 367, # 一般指令
 ```
 
-## 2. 指令分组，按照枚举值输出
+## 2. 指令按调度类型分组，输出枚举值
 
 CodeGenSchedModels（即引用SchedModels）的容器SchedClasses保存了已知的所有调度类型，CodeGenSchedClass的来源有两种，第一种来自指令定义，包括createInstRWClass()方法从InstRW定义直接得到的类型，它们优先保存在SchedClasses容器，其他推导自ItinRW，InstRW及指令定义中的SchedVariant定义。
 
@@ -853,7 +1577,7 @@ InstRW类将一组操作码映射到SchedReadWrite类型列表。
 
 ### *.td
 
-> llvm/lib/Target/Sw64/Sw64SchedCore3.td
+> lib/Target/Sw64/Sw64SchedCore3.td
 
 ```shell
 def : InstRW<[WriteLD], (instregex "^LD(L|W|HU|BU)$")>;
@@ -864,13 +1588,13 @@ def : InstRW<[WriteLD], (instregex "^LD(L|W|HU|BU)$")>;
 > build/lib/Target/Sw64/Sw64GenInstrInfo.inc
 
 ```shell
-WriteJmp    = 1,# 通过指令定义得到的调度类型，这一指令使用执行步骤Jmp，资源使用情况由Write描述
+WriteJmp    = 1, # 通过指令定义得到的调度类型，这一指令使用执行步骤Jmp，资源使用情况由Write描述
 LDBU_LDHU_LDL_LDW    = 10, # InstRW定义的调度类型
 ```
 
 ## 3. 输出执行指令时隐式使用（Uses）和定义（Defs）的寄存器列表。
 
-获取指令记录中的Uses字段与Defs字段，如果不为空的话输出。
+作用：遍历所有指令记录中的Uses字段与Defs字段，如果不为空的话输出。
 
 ### TableGen源码
 
@@ -892,14 +1616,14 @@ LDBU_LDHU_LDL_LDW    = 10, # InstRW定义的调度类型
 
 ### *.td
 
-> llvm\lib\Target\Sw64\Sw64InstrInfo.td
+> lib/Target/Sw64/Sw64InstrInfo.td
 
 ```shell
 let isBarrier = 1, isCall = 1, Defs = [R26], Uses = [R27, R29] in
 def PseudoCall : PseudoInstSw64<(outs), (ins GPRC:$DISP), "",
                                 [(Sw64JmpLink GPRC:$DISP)]>,
                  PseudoInstExpansion<(JSR R26, GPRC:$DISP, 0)>,
-                 Sched<[WriteJmp]>;p]>;
+                 Sched<[WriteJmp]>;
 ```
 
 ### *.inc

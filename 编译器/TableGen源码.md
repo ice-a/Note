@@ -337,9 +337,154 @@ bool LLVMTableGenMain(raw_ostream &OS, RecordKeeper &Records) {
 }
 ```
 
-EmitInstrInfo
+## EmitInstrInfo
 
-emitEnums
+```cpp
+void EmitInstrInfo(RecordKeeper &RK, raw_ostream &OS) {
+  InstrInfoEmitter(RK).run(OS);
+  EmitMapTable(RK, OS);
+}
+```
+
+## run
+
+```cpp
+// run - Emit the main instruction description records for the target...
+void InstrInfoEmitter::run(raw_ostream &OS) {
+  emitSourceFileHeader("Target Instruction Enum Values and Descriptors", OS);
+  emitEnums(OS);
+
+  OS << "#ifdef GET_INSTRINFO_MC_DESC\n";
+  OS << "#undef GET_INSTRINFO_MC_DESC\n";
+
+  OS << "namespace llvm {\n\n";
+
+  CodeGenTarget &Target = CDP.getTargetInfo();
+  const std::string &TargetName = Target.getName();
+  Record *InstrInfo = Target.getInstructionSet();
+
+  // Keep track of all of the def lists we have emitted already.
+  std::map<std::vector<Record*>, unsigned> EmittedLists;
+  unsigned ListNumber = 0;
+
+  // Emit all of the instruction's implicit uses and defs.
+  for (const CodeGenInstruction *II : Target.getInstructionsByEnumValue()) {
+    Record *Inst = II->TheDef;
+    std::vector<Record*> Uses = Inst->getValueAsListOfDefs("Uses");
+    if (!Uses.empty()) {
+      unsigned &IL = EmittedLists[Uses];
+      if (!IL) PrintDefList(Uses, IL = ++ListNumber, OS);
+    }
+    std::vector<Record*> Defs = Inst->getValueAsListOfDefs("Defs");
+    if (!Defs.empty()) {
+      unsigned &IL = EmittedLists[Defs];
+      if (!IL) PrintDefList(Defs, IL = ++ListNumber, OS);
+    }
+  }
+
+  OperandInfoMapTy OperandInfoIDs;
+
+  // Emit all of the operand info records.
+  EmitOperandInfo(OS, OperandInfoIDs);
+
+  // Emit all of the MCInstrDesc records in their ENUM ordering.
+  //
+  OS << "\nextern const MCInstrDesc " << TargetName << "Insts[] = {\n";
+  ArrayRef<const CodeGenInstruction*> NumberedInstructions =
+    Target.getInstructionsByEnumValue();
+
+  SequenceToOffsetTable<std::string> InstrNames;
+  unsigned Num = 0;
+  for (const CodeGenInstruction *Inst : NumberedInstructions) {
+    // Keep a list of the instruction names.
+    InstrNames.add(Inst->TheDef->getName());
+    // Emit the record into the table.
+    emitRecord(*Inst, Num++, InstrInfo, EmittedLists, OperandInfoIDs, OS);
+  }
+  OS << "};\n\n";
+
+  // Emit the array of instruction names.
+  InstrNames.layout();
+  OS << "extern const char " << TargetName << "InstrNameData[] = {\n";
+  InstrNames.emit(OS, printChar);
+  OS << "};\n\n";
+
+  OS << "extern const unsigned " << TargetName <<"InstrNameIndices[] = {";
+  Num = 0;
+  for (const CodeGenInstruction *Inst : NumberedInstructions) {
+    // Newline every eight entries.
+    if (Num % 8 == 0)
+      OS << "\n    ";
+    OS << InstrNames.get(Inst->TheDef->getName()) << "U, ";
+    ++Num;
+  }
+
+  OS << "\n};\n\n";
+
+  // MCInstrInfo initialization routine.
+  OS << "static inline void Init" << TargetName
+     << "MCInstrInfo(MCInstrInfo *II) {\n";
+  OS << "  II->InitMCInstrInfo(" << TargetName << "Insts, "
+     << TargetName << "InstrNameIndices, " << TargetName << "InstrNameData, "
+     << NumberedInstructions.size() << ");\n}\n\n";
+
+  OS << "} // end llvm namespace\n";
+
+  OS << "#endif // GET_INSTRINFO_MC_DESC\n\n";
+
+  // Create a TargetInstrInfo subclass to hide the MC layer initialization.
+  OS << "#ifdef GET_INSTRINFO_HEADER\n";
+  OS << "#undef GET_INSTRINFO_HEADER\n";
+
+  std::string ClassName = TargetName + "GenInstrInfo";
+  OS << "namespace llvm {\n";
+  OS << "struct " << ClassName << " : public TargetInstrInfo {\n"
+     << "  explicit " << ClassName
+     << "(int CFSetupOpcode = -1, int CFDestroyOpcode = -1, int CatchRetOpcode = -1, int ReturnOpcode = -1);\n"
+     << "  ~" << ClassName << "() override = default;\n";
+
+
+  OS << "\n};\n} // end llvm namespace\n";
+
+  OS << "#endif // GET_INSTRINFO_HEADER\n\n";
+
+  OS << "#ifdef GET_INSTRINFO_HELPER_DECLS\n";
+  OS << "#undef GET_INSTRINFO_HELPER_DECLS\n\n";
+  emitTIIHelperMethods(OS, TargetName, /* ExpandDefintion = */false);
+  OS << "\n";
+  OS << "#endif // GET_INSTRINFO_HELPER_DECLS\n\n";
+
+  OS << "#ifdef GET_INSTRINFO_HELPERS\n";
+  OS << "#undef GET_INSTRINFO_HELPERS\n\n";
+  emitTIIHelperMethods(OS, TargetName, /* ExpandDefintion = */true);
+  OS << "#endif // GET_INSTRINFO_HELPERS\n\n";
+
+  OS << "#ifdef GET_INSTRINFO_CTOR_DTOR\n";
+  OS << "#undef GET_INSTRINFO_CTOR_DTOR\n";
+
+  OS << "namespace llvm {\n";
+  OS << "extern const MCInstrDesc " << TargetName << "Insts[];\n";
+  OS << "extern const unsigned " << TargetName << "InstrNameIndices[];\n";
+  OS << "extern const char " << TargetName << "InstrNameData[];\n";
+  OS << ClassName << "::" << ClassName
+     << "(int CFSetupOpcode, int CFDestroyOpcode, int CatchRetOpcode, int ReturnOpcode)\n"
+     << "  : TargetInstrInfo(CFSetupOpcode, CFDestroyOpcode, CatchRetOpcode, ReturnOpcode) {\n"
+     << "  InitMCInstrInfo(" << TargetName << "Insts, " << TargetName
+     << "InstrNameIndices, " << TargetName << "InstrNameData, "
+     << NumberedInstructions.size() << ");\n}\n";
+  OS << "} // end llvm namespace\n";
+
+  OS << "#endif // GET_INSTRINFO_CTOR_DTOR\n\n";
+
+  emitOperandNameMappings(OS, Target, NumberedInstructions);
+
+  emitOperandTypeMappings(OS, Target, NumberedInstructions);
+
+  emitMCIIHelperMethods(OS, TargetName);
+}
+```
+
+## emitEnums
 
 ```cpp
 void InstrInfoEmitter::emitEnums(raw_ostream &OS) {
