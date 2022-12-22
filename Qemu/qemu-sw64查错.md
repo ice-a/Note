@@ -1,6 +1,8 @@
-# 1、Elf格式问题
+# 1、Elf格式不支持
 
-9906编译的hello的会报 Invalid ELF image for this architecture，9916的不会，不论是动态编译的还是静态编译的。
+场景：qemu-sw64执行ELF MACHINE=0x9906的hello程序会报 Invalid ELF image for this architecture。ELF MACHINE=0x9916的不会，不论是动态编译的还是静态编译的。
+
+报错信息：
 
 172.16.129.166：
 
@@ -16,7 +18,7 @@
 > hello-sw-dynamic-9906:
 > qemu-sw64：test/hello-sw-dynamic-9906：Invalid ELF image for this architecture
 
-暂时解决方案linux-user/elfload.c：2626 注释掉，这样就可以正常读取了
+暂时解决方案：linux-user/elfload.c：2626 注释掉，这样就可以正常读取了
 
 > hello-sw-static-9916:
 > hello
@@ -45,7 +47,11 @@
 > hello-sw-dynamic-9906:
 > hello
 
-# 2、翻译动态编译的hello程序问题
+# 2、读取动态库出错
+
+测试用例：动态编译的hello程序
+
+报错信息：
 
 执行动态编译程序时
 
@@ -280,7 +286,11 @@ sw特有的架构 /usr/include/asm/mmani.h
 
 qemu中sw分支用的是通用分支，要写定义它特有的分支，在qemu6-system/linux-user/syscall_defs.h中定义，照抄/usr/include/asm/mmani.h就行。 
 
-# 3、456.hmmer
+# 3、VCOND、VCONS指令翻译错误
+
+测试环境：114 6B
+
+报错用例：spec2006 456.hmmer
 
 ## 错误一：返回值非0
 
@@ -324,7 +334,11 @@ VCOND VCONS
 
 指令执行步骤对应的函数顺序错误，参数错误。
 
-# 4、416.gamess
+# 4、FADDD指令翻译错误
+
+测试环境：114 6B
+
+报错用例：spec2006 416.gamess
 
 > 报错信息：
 > 
@@ -345,7 +359,11 @@ NINT函数 四舍五入函数 faddd指令翻译helper函数
 
 关闭simple-float选项
 
-# 5、400.perlbench
+# 5、系统调用getxid不支持
+
+测试环境：114 6B
+
+报错用例：spec2006 400.perlbench
 
 > 报错信息：
 > 
@@ -381,4 +399,36 @@ getgid() getegid()
 
 相关系统调用宏未定义，TARGET宏未定义，系统调用代码未实现
 
-# 6、段错误
+# 6、RTID指令翻译错误
+
+测试环境：121，系统版本1050d
+
+是因为core3比较新？
+
+执行所有程序时，均会报段错误。
+
+> 报错信息：
+> 
+> Segments Faults  段错误
+
+测试用例：hello程序
+
+定位：段错误停在code_gen_buffer即执行时，往上查是哪一个翻译块，在查是哪一条指令。
+
+```asm6502
+0x12003f52c <ptmalloc_init+60>: rtid $r0
+```
+
+本地执行r0会有值，qemu翻译执行r0为0。
+
+同时本地执行经gdb调试`info r a`后观察发现r0的值是由unique寄存器的值传来的。
+
+错误原因：rtid没有翻译，是调用helper函数返回csr->[unique]，而csr为空。说是老版内核不支持读写csr寄存器（因为是硬件相关），新版本支持了，而qemu的sw前后端并没有实现。
+
+# 7、ELF 格式不支持 续
+
+问题原因：历史遗留问题，申威没有申请ELF MACHINE号，同时有0x9906和0x9916两个号码。而Qemu只添加了对0x9916的支持。
+
+解决方案一：注释Qemu对ELF的检查。
+
+解决方案二：添加Qemu对0x9906的支持。

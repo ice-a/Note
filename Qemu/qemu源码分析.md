@@ -133,7 +133,7 @@ type_init(sw64_cpu_register_types)
 
 后面通过查找这个hash表，就可以找到某个类型cpu的所有描述信息，并且可以找到这类cpu的初始化函数并执行
 
-# 2.main()
+# 2.主函数main()
 
 > linux-user/main.c:main
 
@@ -354,7 +354,7 @@ static void load_elf_image(const char *image_name, int image_fd,
         goto exit_errmsg;
     }
     bswap_ehdr(ehdr);
-    if (!elf_check_ehdr(ehdr)) {
+    if (!elf_check_ehdr(ehdr)) {//检查elf格式，e_machine相关宏修改，0x9906支持
         error_setg(&err, "Invalid ELF image for this architecture");
         goto exit_errmsg;
     }
@@ -459,15 +459,270 @@ static void load_elf_image(const char *image_name, int image_fd,
     }
 ```
 
-## CPU创建 ，cpu初始化
+## CPU创建 、CPU初始化
 
 init machine     accel_commmom_init
 
 cpu_create        object_new   cpu     sw64_cpu_initfn    core3_init
 
+### cpu_create()
+
+> hw/core/cpu.c
+
+```c
+CPUState *cpu_create(const char *typename)
+{
+    Error *err = NULL;
+    CPUState *cpu = CPU(object_new(typename));
+    if (!qdev_realize(DEVICE(cpu), NULL, &err)) {
+        error_report_err(err);
+        object_unref(OBJECT(cpu));
+        exit(EXIT_FAILURE);
+    }
+    return cpu;
+}
+```
+
+### core3_init()
+
+```c
+Object *object_new(const char *typename)
+{
+    TypeImpl *ti = type_get_by_name(typename);
+
+    return object_new_with_type(ti);
+} 
+static Object *object_new_with_type(Type type)
+{
+    Object *obj;
+    size_t size, align;
+    void (*obj_free)(void *);
+
+    g_assert(type != NULL);
+    type_initialize(type);
+
+    size = type->instance_size;
+    align = type->instance_align;
+
+    /*
+     * Do not use qemu_memalign unless required.  Depending on the
+     * implementation, extra alignment implies extra overhead.
+     */
+    if (likely(align <= __alignof__(qemu_max_align_t))) {
+        obj = g_malloc(size);
+        obj_free = g_free;
+    } else {
+        obj = qemu_memalign(align, size);
+        obj_free = qemu_vfree;
+    }
+
+    object_initialize_with_type(obj, size, type);
+    obj->free = obj_free;
+
+    return obj;
+} 
+static void object_initialize_with_type(Object *obj, size_t size, TypeImpl *type)
+{
+    type_initialize(type);
+
+    g_assert(type->instance_size >= sizeof(Object));
+    g_assert(type->abstract == false);
+    g_assert(size >= type->instance_size);
+
+    memset(obj, 0, type->instance_size);
+    obj->class = type->class;
+    object_ref(obj);
+    object_class_property_init_all(obj);
+    obj->properties = g_hash_table_new_full(g_str_hash, g_str_equal,
+                                            NULL, object_property_free);
+    object_init_with_type(obj, type);
+    object_post_init_with_type(obj, type);
+}   
+static void object_init_with_type(Object *obj, TypeImpl *ti)
+{
+    if (type_has_parent(ti)) {
+        object_init_with_type(obj, type_get_parent(ti));
+    }
+
+    if (ti->instance_init) {
+        ti->instance_init(obj);
+    }
+}  
+static void core3_init(Object *obj)
+{
+    CPUState *cs = CPU(obj);
+    CPUSW64State *env = cs->env_ptr;
+#ifdef CONFIG_USER_ONLY
+    env->fpcr = 0x680e800000000000;
+#endif
+    set_feature(env, SW64_FEATURE_CORE3);
+}
+```
+
+### sw64_translate_init()
+
+函数调用关系
+
+```c
+cpu = cpu_create(cpu_type)
+CPUState *cpu_create(const char *typename)
+{
+    if (!qdev_realize(DEVICE(cpu), NULL, &err)) {
+}
+
+bool qdev_realize(DeviceState *dev, BusState *bus, Error **errp)
+{
+    return object_property_set_bool(OBJECT(dev), "realized", true, errp);
+}
+
+bool object_property_set_bool(Object *obj, const char *name,
+                              bool value, Error **errp)
+{
+    bool ok = object_property_set_qobject(obj, name, QOBJECT(qbool), errp);
+}
+
+bool object_property_set_qobject(Object *obj,
+                                 const char *name, QObject *value,
+                                 Error **errp)
+{
+    ok = object_property_set(obj, name, v, errp);
+}
+
+bool object_property_set(Object *obj, const char *name, Visitor *v,
+                         Error **errp)
+{
+    prop->set(obj, v, name, prop->opaque, &err);
+}
+
+static void property_set_bool(Object *obj, Visitor *v, const char *name,
+                              void *opaque, Error **errp)
+{
+    prop->set(obj, value, errp);
+}
+
+static void device_set_realized(Object *obj, bool value, Error **errp)
+{       
+        dc->realize(dev, &local_err);
+}
+
+static void sw64_cpu_realizefn(DeviceState *dev, Error **errp)
+{
+    cpu_exec_realizefn(cs, &local_err);
+} 
+
+void cpu_exec_realizefn(CPUState *cpu, Error **errp)
+{
+        tcg_exec_realizefn(cpu, errp);
+}
+
+void tcg_exec_realizefn(CPUState *cpu, Error **errp)
+{
+        cc->tcg_ops->initialize();
+}
+
+void sw64_translate_init(void)
+{}
+```
+
+> target/sw64/translate.c:初始化TCGContext成员temp
+
+```c
+void sw64_translate_init(void)
+{
+#define DEF_VAR(V) \
+    { &cpu_##V, #V, offsetof(CPUSW64State, V) }
+
+    typedef struct {
+        TCGv* var;
+        const char* name;
+        int ofs;
+    } GlobalVar;
+
+    static const GlobalVar vars[] = {
+        DEF_VAR(pc),         DEF_VAR(lock_addr),
+        DEF_VAR(lock_flag),  DEF_VAR(lock_success),
+#ifdef SW64_FIXLOCK
+        DEF_VAR(lock_value),
+#endif
+    };
+    cpu_pc = tcg_global_mem_new_i64(cpu_env,
+                                    offsetof(CPUSW64State, pc), "PC");//程序计数器
+
+#undef DEF_VAR
+
+    /* Use the symbolic register names that match the disassembler.  */
+    static const char ireg_names[31][4] = {
+        "v0", "t0", "t1",  "t2",  "t3", "t4",  "t5", "t6", "t7", "s0", "s1",
+        "s2", "s3", "s4",  "s5",  "fp", "a0",  "a1", "a2", "a3", "a4", "a5",
+        "t8", "t9", "t10", "t11", "ra", "t12", "at", "gp", "sp"};
+
+    static const char freg_names[128][4] = {
+        "f0",  "f1",  "f2",  "f3",  "f4",  "f5",  "f6",  "f7",  "f8",  "f9",
+        "f10", "f11", "f12", "f13", "f14", "f15", "f16", "f17", "f18", "f19",
+        "f20", "f21", "f22", "f23", "f24", "f25", "f26", "f27", "f28", "f29",
+        "f30", "f31", "f0",  "f1",  "f2",  "f3",  "f4",  "f5",  "f6",  "f7",
+        "f8",  "f9",  "f10", "f11", "f12", "f13", "f14", "f15", "f16", "f17",
+        "f18", "f19", "f20", "f21", "f22", "f23", "f24", "f25", "f26", "f27",
+        "f28", "f29", "f30", "f31", "f0",  "f1",  "f2",  "f3",  "f4",  "f5",
+        "f6",  "f7",  "f8",  "f9",  "f10", "f11", "f12", "f13", "f14", "f15",
+        "f16", "f17", "f18", "f19", "f20", "f21", "f22", "f23", "f24", "f25",
+        "f26", "f27", "f28", "f29", "f30", "f31", "f0",  "f1",  "f2",  "f3",
+        "f4",  "f5",  "f6",  "f7",  "f8",  "f9",  "f10", "f11", "f12", "f13",
+        "f14", "f15", "f16", "f17", "f18", "f19", "f20", "f21", "f22", "f23",
+        "f24", "f25", "f26", "f27", "f28", "f29", "f30", "f31"};
+
+#ifndef CONFIG_USER_ONLY
+    static const char shadow_names[10][8] = {
+        "hm_p1", "hm_p2",  "hm_p4",  "hm_p5",  "hm_p6",
+        "hm_p7", "hm_p20", "hm_p21", "hm_p22", "hm_p23"};
+    static const int shadow_index[10] = {1, 2, 4, 5, 6, 7, 20, 21, 22, 23};
+#endif
+
+    int i;
+    //整数寄存器ir,
+    for (i = 0; i < 31; i++) {
+        cpu_std_ir[i] = tcg_global_mem_new_i64(
+            cpu_env, offsetof(CPUSW64State, ir[i]), ireg_names[i]);
+    }
+    //浮点寄存器fr
+    for (i = 0; i < 128; i++) {
+        cpu_fr[i] = tcg_global_mem_new_i64(
+            cpu_env, offsetof(CPUSW64State, fr[i]), freg_names[i]);
+    }
+    for (i = 0; i < ARRAY_SIZE(vars); ++i) {//pc,lock_addr,lock_flag,lock_success,lock_value
+        const GlobalVar* v = &vars[i];
+        *v->var = tcg_global_mem_new_i64(cpu_env, v->ofs, v->name);
+    }
+#ifndef CONFIG_USER_ONLY
+    memcpy(cpu_hm_ir, cpu_std_ir, sizeof(cpu_hm_ir));
+    for (i = 0; i < 10; i++) {
+        int r = shadow_index[i];
+        cpu_hm_ir[r] = tcg_global_mem_new_i64(
+            cpu_env, offsetof(CPUSW64State, sr[i]), shadow_names[i]);
+    }
+#endif
+}
+```
+
+cpu_env 表示tcg_ctx->temps[0]相对于tcg_ctx的offset，tcg_ctx->temps[0].reg=TCG_AREG0,tcg_ctx->temps[0].kind=TEMP_FIXED, tcg_ctx->temps[0].name=env
+
+TCG_AREG0是架构相关的临时寄存器，在host执行tcg_qemu_tb_exec时使用TCG_AREG0 来访问翻译模式下的env。（aarch64: TCG_AREG0 =TCG_REG_X19,sw_64:TCG_AREG0=TCG_REG_X9）
+
+tcg_init_ctx.temps[0]
+
+在执行模式中用来指向env(CPUX86State)
+
+temps[1].mem_base指向temps[0]，
+
+也就是CPUX86State,
+
+temps[1].mem_offset表示cc_op在CPUX86State的偏移
+
+r9的值加上偏移量得到的地址取值就是各个汇编语言中寄存器r几的值
+
 ## prologue初始化
 
-### tcg_prologue_init
+### prologue初始化tcg_prologue_init()
 
 ```c
 void tcg_prologue_init(TCGContext *s)
@@ -476,8 +731,8 @@ void tcg_prologue_init(TCGContext *s)
     void *buf0, *buf1;
 
     /* Put the prologue at the beginning of code_gen_buffer.  */
-    buf0 = s->code_gen_buffer;
-    total_size = s->code_gen_buffer_size;
+    buf0 = s->code_gen_buffer;//缓冲首地址
+    total_size = s->code_gen_buffer_size;//缓冲大小
     s->code_ptr = buf0;
     s->code_buf = buf0;
     s->data_gen_ptr = NULL;
@@ -504,7 +759,7 @@ void tcg_prologue_init(TCGContext *s)
 
     qemu_thread_jit_write();
     /* Generate the prologue.  */
-    tcg_target_qemu_prologue(s);
+    tcg_target_qemu_prologue(s);//生成prologue
 
 #ifdef TCG_TARGET_NEED_POOL_LABELS
     /* Allow the prologue to put e.g. guest_base into a pool entry.  */
@@ -514,17 +769,17 @@ void tcg_prologue_init(TCGContext *s)
     }
 #endif
 
-    buf1 = s->code_ptr;
+    buf1 = s->code_ptr;//下一条代码
 #ifndef CONFIG_TCG_INTERPRETER
     flush_idcache_range((uintptr_t)tcg_splitwx_to_rx(buf0), (uintptr_t)buf0,
                         tcg_ptr_byte_diff(buf1, buf0));
 #endif
 
     /* Deduct the prologue from the buffer.  */
-    prologue_size = tcg_current_code_size(s);
-    s->code_gen_ptr = buf1;
-    s->code_gen_buffer = buf1;
-    s->code_buf = buf1;
+    prologue_size = tcg_current_code_size(s);//prologue大小
+    s->code_gen_ptr = buf1;//缓冲未使用
+    s->code_gen_buffer = buf1;//缓冲首地址
+    s->code_buf = buf1;//TB块首地址
     total_size -= prologue_size;
     s->code_gen_buffer_size = total_size;
 
@@ -692,7 +947,7 @@ enum {
 };
 ```
 
-## SW：cpu_loop()
+## SW程序执行cpu_loop()
 
 > linux-user/sw64/cpu_loop.c:cpu_loop
 
@@ -772,7 +1027,7 @@ void cpu_loop(CPUSW64State *env)
 }
 ```
 
-## TranslationBlock
+## TB块TranslationBlock
 
 > include/exec/exec-all.h:TranslationBlock
 > 
@@ -893,7 +1148,7 @@ struct tb_tc {
 };
 ```
 
-## cpu_exec()
+## TB块执行循环cpu_exec()
 
 > accel/tcg/cpu-exec.c:cpu_exec
 
@@ -932,7 +1187,7 @@ int cpu_exec(CPUState *cpu)
 }
 ```
 
-### tb_find()
+### TB查找、生成tb_find()
 
 > accel/tcg/cpu-exec.c:tb_find
 
@@ -975,7 +1230,7 @@ static inline TranslationBlock *tb_find(CPUState *cpu,
 }
 ```
 
-#### tb_lookup()
+#### TB查找tb_lookup()
 
 > include/exec/tb-lookup.h
 
@@ -1014,7 +1269,7 @@ static inline TranslationBlock *tb_lookup(CPUState *cpu, target_ulong pc,
 }
 ```
 
-#### tb_gen_code()
+#### TB生成tb_gen_code()
 
 > accel/tcg/cpu-exec.c
 
@@ -1288,7 +1543,7 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
 }
 ```
 
-#### tb_add_jump()
+#### TB建链tb_add_jump()
 
 ```c
 static inline void tb_add_jump(TranslationBlock *tb, int n,
@@ -1375,7 +1630,7 @@ void tb_target_set_jmp_target(uintptr_t tc_ptr, uintptr_t jmp_rx, uintptr_t jmp_
 }
 ```
 
-### cpu_loop_exec_tb()
+### TB执行cpu_loop_exec_tb()
 
 > accel/tcg/cpu-exec.c:cpu_loop_exec_tb
 
@@ -1466,7 +1721,7 @@ cpu_tb_exec(CPUState *cpu, TranslationBlock *itb, int *tb_exit)
     qemu_thread_jit_execute();
     //tcg_qemu_tb_exec_num++; 
     //printf("tcg_qemu_tb_exec=%d\n",tcg_qemu_tb_exec_num); 打印即将要执行的tb块号
-    ret = tcg_qemu_tb_exec(env, tb_ptr);
+    ret = tcg_qemu_tb_exec(env, tb_ptr);//执行tb块
     cpu->can_do_io = 1;
     /*
      * TODO: Delay swapping back to the read-write region of the TB
@@ -1652,7 +1907,7 @@ struct CPUSW64State {//对应tcg_init_ctx.temps[]
     uint64_t trap_arg2;
 
     uint64_t features;
-    uint64_t insn_count[537];
+    uint64_t insn_count[537];//记录各种指令翻译数量
 
     /* reserve for slave */
     uint64_t ca[4];
@@ -1669,7 +1924,7 @@ struct CPUSW64State {//对应tcg_init_ctx.temps[]
 };
 ```
 
-## code_gen_buffer
+## TB存储在code_gen_buffer
 
 > include/tcg/tcg.h:TCGContext
 
@@ -1684,75 +1939,14 @@ struct TCGContext {
     size_t code_gen_buffer_size;//缓存大小
     void *code_gen_ptr;//指示当前未使用的缓存地址,当前翻译host代码保存位置？
     void *data_gen_ptr;
-
 }
 ```
-
-> accel/tcg/translate-all.c:code_gen_buffer如何分配空间
-
-```c
-#if TCG_TARGET_REG_BITS == 32  
-#define DEFAULT_CODE_GEN_BUFFER_SIZE_1 (32 * MiB)
-#ifdef CONFIG_USER_ONLY
-/*
- * For user mode on smaller 32 bit systems we may run into trouble
- * allocating big chunks of data in the right place. On these systems
- * we utilise a static code generation buffer directly in the binary.
- */
-#define USE_STATIC_CODE_GEN_BUFFER
-#endif
-#else /* TCG_TARGET_REG_BITS == 64 */    //sw64，所以是64位
-#ifdef CONFIG_USER_ONLY                  //是usermode，有定义
-/*
- * As user-mode emulation typically means running multiple instances
- * of the translator don't go too nuts with our default code gen
- * buffer lest we make things too hard for the OS.
- */
-#define DEFAULT_CODE_GEN_BUFFER_SIZE_1 (128 * MiB)//控制buffer大小
-#else
-/*
- * We expect most system emulation to run one or two guests per host.
- * Users running large scale system emulation may want to tweak their
- * runtime setup via the tb-size control on the command line.
- */
-#define DEFAULT_CODE_GEN_BUFFER_SIZE_1 (1 * GiB)
-#endif
-
-
-#ifdef USE_STATIC_CODE_GEN_BUFFER    //静态分配，宏没有定义，不会执行下去，
-static uint8_t static_code_gen_buffer[DEFAULT_CODE_GEN_BUFFER_SIZE]
-    __attribute__((aligned(CODE_GEN_ALIGN)));
-
-
-#else //采用的是动态分配
-static bool alloc_code_gen_buffer_anon(size_t size, int prot,
-                                       int flags, Error **errp)
-{
-    void *buf;
-
-    buf = mmap(NULL, size, prot, flags, -1, 0);
-    if (buf == MAP_FAILED) {
-        error_setg_errno(errp, errno,
-                         "allocate %zu bytes for jit buffer", size);
-        return false;
-    }
-    tcg_ctx->code_gen_buffer_size = size;
-
-
-
-    /* Request large pages for the buffer.  */
-    qemu_madvise(buf, size, QEMU_MADV_HUGEPAGE);
-
-    tcg_ctx->code_gen_buffer = buf;
-    return true;
-}
-```
-
-这片内存可以采用静态分配方式，也可以采用动态分配方式，前者将code_gen_buffer指向静态分配的空间，后者将code_gen_buffer指向动态分配的空间。编译时由宏USE_STATIC_CODE_GEN_BUFFER控制选用那种方式。
 
 # 3.SW前端
 
-## DisasContext
+## 结构体、宏、变量
+
+### 反汇编环境DisasContext
 
 > target/sw64/translate.h:DisasContext
 
@@ -1775,7 +1969,7 @@ struct DisasContext {
 };
 ```
 
-### DisasContextBase
+#### DisasContextBase
 
 ```c
 /**
@@ -1802,26 +1996,7 @@ typedef struct DisasContextBase {
 } DisasContextBase;
 ```
 
-## gen_intermediate_code()
-
-声明DisasContext结构体变量dc，调用transloop_loop()把guest code翻译为中间代码。
-
-执行函数
-
-> target/sw64/translate.c
-
-```c
-void gen_intermediate_code(CPUState* cpu, TranslationBlock* tb, int max_insns)
-{
-    DisasContext dc;
-    init_transops(cpu, &dc);
-    translator_loop(&sw64_trans_ops, &dc.base, cpu, tb, max_insns);
-}
-```
-
-程序计数器pc =代码段寄存器cs+指令指针寄存器EIP（段地址：偏移地址）
-
-## TranslatorOps
+### TranslatorOps
 
 > target/sw64/translate.c
 
@@ -1869,10 +2044,11 @@ static const TranslatorOps sw64_trans_ops = {
 };
 ```
 
-## DisasJumpType
+### DisasJumpType
+
+> target\sw64\translate.h
 
 ```c
-> target\sw64\translate.h
 //我们正在退出TB到主回路
 #define DISAS_PC_UPDATED_NOCHAIN    DISAS_TARGET_0 
 //我们没有使用goto_tb（出于任何原因），但已更新了PC（出于任何理由），因此在退出tb时无需再次执行此操作。
@@ -1909,7 +2085,26 @@ typedef enum DisasJumpType {//translate_one()的返回值，指示TB的状态
 } DisasJumpType;
 ```
 
-## translator_loop()
+## 生成中间代码gen_intermediate_code()
+
+声明DisasContext结构体变量dc，调用transloop_loop()把guest code翻译为中间代码。
+
+执行函数
+
+> target/sw64/translate.c
+
+```c
+void gen_intermediate_code(CPUState* cpu, TranslationBlock* tb, int max_insns)
+{
+    DisasContext dc;
+    init_transops(cpu, &dc);
+    translator_loop(&sw64_trans_ops, &dc.base, cpu, tb, max_insns);
+}
+```
+
+程序计数器pc =代码段寄存器cs+指令指针寄存器EIP（段地址：偏移地址）
+
+## TB内翻译循环translator_loop()
 
 void translator_loop(const TranslatorOps *ops, DisasContextBase *db,CPUState *cpu, TranslationBlock *tb, int max_insns)
 
@@ -1950,7 +2145,7 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
     int bp_insn = 0;
     bool plugin_enabled;//插件
 
-    /* Initialize DisasContext */
+    /* Initialize DisasContext */  //初始化反汇编环境
     db->tb = tb;
     db->pc_first = tb->pc;//tb起始地址，即第一条指令
     db->pc_next = db->pc_first;//下一条指令
@@ -2064,7 +2259,28 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
 }
 ```
 
-### ops->translate_insn()
+### 初始化反汇编环境init_diasa_context()
+
+> target/sw64/translate.c
+
+```c
+static void sw64_tr_init_disas_context(DisasContextBase *dcbase, CPUState *cpu)
+{
+    DisasContext* ctx = container_of(dcbase, DisasContext, base);
+    CPUSW64State* env = cpu->env_ptr; /*init by instance_initfn*/
+
+    ctx->tbflags = ctx->base.tb->flags;
+    ctx->mem_idx = cpu_mmu_index(env, false);
+#ifdef CONFIG_USER_ONLY
+    ctx->ir = cpu_std_ir;//
+#else
+    ctx->ir = (ctx->tbflags & ENV_FLAG_HM_MODE ? cpu_hm_ir : cpu_std_ir);
+#endif
+    ctx->zero = NULL;
+}
+```
+
+### 翻译一条指令translate_insn()
 
 > target/sw64/translate.c
 
@@ -2085,7 +2301,7 @@ static void sw64_tr_translate_insn(DisasContextBase *dcbase, CPUState *cpu)
 }
 ```
 
-#### cpu_ldl_code()
+#### 取指令cpu_ldl_code()
 
 > accel/tcg/user-exec.c
 
@@ -2103,7 +2319,7 @@ uint32_t cpu_ldl_code(CPUArchState *env, abi_ptr ptr)
 
 动态翻译基本思想把一条target指令切分成若干条微操作，每条微操作由一段简单的C代码来实现，运行时通过一个动态代码生成器把这些微操作组合成一个函数，最后执行这个函数。
 
-#### translate_one()
+#### 指令翻译函数translate_one()
 
 > target/sw64/translate.c
 
@@ -2291,7 +2507,7 @@ static DisasJumpType gen_sys_call(DisasContext *ctx, int syscode)
             /* IMB */
             /* No-op inside QEMU */
             break;
-#ifdef CONFIG_USER_ONLY//?
+#ifdef CONFIG_USER_ONLY //?
         case 0x9E://__NR_osf_nfssvc 158
             /* RDUNIQUE */
             tcg_gen_ld_i64(ctx->ir[IDX_V0], cpu_env,
@@ -2322,7 +2538,7 @@ do_sys_call:
 
 ## 参考资料
 
-### TCG中间码参考
+### TCG中间代码参考
 
 > tcg/README
 
@@ -2330,7 +2546,9 @@ do_sys_call:
 
 > /usr/include/sw_64/regdef.h
 
-### TCG寄存器
+### SW寄存器在TCG中的表示
+
+> tcg/sw_64/tcg-target.h
 
 ```c
 typedef enum {
@@ -2370,16 +2588,16 @@ typedef enum {
 > 
 > linux-user/host/sw_64/safe-syscall.inc.S qemu翻译到系统调用有时会调用这个函数，执行汇编
 
-## TCGOpcode
+## 所有中间代码的操作码枚举集合TCGOpcode
 
 > include/tcg/tcg.h
 
 ```c
-typedef enum TCGOpcode {//枚举所有TCG操作
+typedef enum TCGOpcode {//枚举所有TCG操作，赋值0、1、2...
 #define DEF(name, oargs, iargs, cargs, flags) INDEX_op_ ## name,//宏函数定义成名字，把每一个TCG操作对应到操作码
-#include "tcg/tcg-opc.h"
+#include "tcg/tcg-opc.h"  //所有中间代码定义
 #undef DEF
-    NB_OPS,?什么玩意，中间码个数
+    NB_OPS,//枚举，最后一个，数值表示中间码数量。
 } TCGOpcode;
 ```
 
@@ -2505,6 +2723,10 @@ typedef struct TCGArgConstraint {
     bool newreg : 1;
     TCGRegSet regs;
 } TCGArgConstraint;
+typedef struct TCGTargetOpDef {
+    TCGOpcode op;
+    const char *args_ct_str[TCG_MAX_OP_ARGS];
+} TCGTargetOpD
 ```
 
 > tcg/tcg-common.c:全局变量tcg_op_defs
@@ -2520,6 +2742,8 @@ const size_t tcg_op_defs_max = ARRAY_SIZE(tcg_op_defs);//TCG操作个数
 ```
 
 ## TCG初始化
+
+### tcg_init()
 
 > accel/tcg/tcg-all.c：tcg_init
 
@@ -2564,6 +2788,70 @@ void tcg_exec_init(unsigned long tb_size, int splitwx)
 }
 ```
 
+#### 分配缓存alloc_code_gen_buffer()
+
+> accel/tcg/translate-all.c:code_gen_buffer如何分配空间
+
+```c
+#if TCG_TARGET_REG_BITS == 32  
+#define DEFAULT_CODE_GEN_BUFFER_SIZE_1 (32 * MiB)
+#ifdef CONFIG_USER_ONLY
+/*
+ * For user mode on smaller 32 bit systems we may run into trouble
+ * allocating big chunks of data in the right place. On these systems
+ * we utilise a static code generation buffer directly in the binary.
+ */
+#define USE_STATIC_CODE_GEN_BUFFER
+#endif
+#else /* TCG_TARGET_REG_BITS == 64 */    //sw64，所以是64位
+#ifdef CONFIG_USER_ONLY                  //是usermode，有定义
+/*
+ * As user-mode emulation typically means running multiple instances
+ * of the translator don't go too nuts with our default code gen
+ * buffer lest we make things too hard for the OS.
+ */
+#define DEFAULT_CODE_GEN_BUFFER_SIZE_1 (128 * MiB)//控制buffer大小
+#else
+/*
+ * We expect most system emulation to run one or two guests per host.
+ * Users running large scale system emulation may want to tweak their
+ * runtime setup via the tb-size control on the command line.
+ */
+#define DEFAULT_CODE_GEN_BUFFER_SIZE_1 (1 * GiB)
+#endif
+
+
+#ifdef USE_STATIC_CODE_GEN_BUFFER    //静态分配，宏没有定义，不会执行下去，
+static uint8_t static_code_gen_buffer[DEFAULT_CODE_GEN_BUFFER_SIZE]
+    __attribute__((aligned(CODE_GEN_ALIGN)));
+
+
+#else //采用的是动态分配
+static bool alloc_code_gen_buffer_anon(size_t size, int prot,
+                                       int flags, Error **errp)
+{
+    void *buf;
+
+    buf = mmap(NULL, size, prot, flags, -1, 0);
+    if (buf == MAP_FAILED) {
+        error_setg_errno(errp, errno,
+                         "allocate %zu bytes for jit buffer", size);
+        return false;
+    }
+    tcg_ctx->code_gen_buffer_size = size;
+
+
+
+    /* Request large pages for the buffer.  */
+    qemu_madvise(buf, size, QEMU_MADV_HUGEPAGE);
+
+    tcg_ctx->code_gen_buffer = buf;
+    return true;
+}
+```
+
+这片内存可以采用静态分配方式，也可以采用动态分配方式，前者将code_gen_buffer指向静态分配的空间，后者将code_gen_buffer指向动态分配的空间。编译时由宏USE_STATIC_CODE_GEN_BUFFER控制选用那种方式。
+
 > accel/tcg/translate-all.c
 
 ```c
@@ -2572,8 +2860,6 @@ static void cpu_gen_init(void)
     tcg_context_init(&tcg_init_ctx);//
 }
 ```
-
-### tcg_context_init()
 
 > tcg/tcg.c:tcg_context_init初始化TCGContext
 
@@ -2657,166 +2943,293 @@ void tcg_context_init(TCGContext *s)
 }
 ```
 
-### sw64_translate_init()
-
-函数调用关系
+### process_op_def()
 
 ```c
-cpu = cpu_create(cpu_type)
-CPUState *cpu_create(const char *typename)
+static void process_op_defs(TCGContext *s)
 {
-    if (!qdev_realize(DEVICE(cpu), NULL, &err)) {
-}
+    TCGOpcode op;
 
-bool qdev_realize(DeviceState *dev, BusState *bus, Error **errp)
-{
-    return object_property_set_bool(OBJECT(dev), "realized", true, errp);
-}
+    for (op = 0; op < NB_OPS; op++) {
+        TCGOpDef *def = &tcg_op_defs[op];
+        const TCGTargetOpDef *tdefs;
+        int i, nb_args;
 
-bool object_property_set_bool(Object *obj, const char *name,
-                              bool value, Error **errp)
-{
-    bool ok = object_property_set_qobject(obj, name, QOBJECT(qbool), errp);
-}
+        if (def->flags & TCG_OPF_NOT_PRESENT) {
+            continue;
+        }
 
-bool object_property_set_qobject(Object *obj,
-                                 const char *name, QObject *value,
-                                 Error **errp)
-{
-    ok = object_property_set(obj, name, v, errp);
-}
+        nb_args = def->nb_iargs + def->nb_oargs;
+        if (nb_args == 0) {
+            continue;
+        }
 
-bool object_property_set(Object *obj, const char *name, Visitor *v,
-                         Error **errp)
-{
-    prop->set(obj, v, name, prop->opaque, &err);
-}
+        /*
+         * Macro magic should make it impossible, but double-check that
+         * the array index is in range.  Since the signness of an enum
+         * is implementation defined, force the result to unsigned.
+         */
+        unsigned con_set = tcg_target_op_def(op);//初始化中间代码
+        tcg_debug_assert(con_set < ARRAY_SIZE(constraint_sets));
+        tdefs = &constraint_sets[con_set];
 
-static void property_set_bool(Object *obj, Visitor *v, const char *name,
-                              void *opaque, Error **errp)
-{
-    prop->set(obj, value, errp);
-}
+        for (i = 0; i < nb_args; i++) {
+            const char *ct_str = tdefs->args_ct_str[i];
+            /* Incomplete TCGTargetOpDef entry. */
+            tcg_debug_assert(ct_str != NULL);
 
-static void device_set_realized(Object *obj, bool value, Error **errp)
-{       
-        dc->realize(dev, &local_err);
-}
+            while (*ct_str != '\0') {
+                switch(*ct_str) {
+                case '0' ... '9':
+                    {
+                        int oarg = *ct_str - '0';
+                        tcg_debug_assert(ct_str == tdefs->args_ct_str[i]);
+                        tcg_debug_assert(oarg < def->nb_oargs);
+                        tcg_debug_assert(def->args_ct[oarg].regs != 0);
+                        def->args_ct[i] = def->args_ct[oarg];
+                        /* The output sets oalias.  */
+                        def->args_ct[oarg].oalias = true;
+                        def->args_ct[oarg].alias_index = i;
+                        /* The input sets ialias. */
+                        def->args_ct[i].ialias = true;
+                        def->args_ct[i].alias_index = oarg;
+                    }
+                    ct_str++;
+                    break;
+                case '&':
+                    def->args_ct[i].newreg = true;
+                    ct_str++;
+                    break;
+                case 'i':
+                    def->args_ct[i].ct |= TCG_CT_CONST;
+                    ct_str++;
+                    break;
 
-static void sw64_cpu_realizefn(DeviceState *dev, Error **errp)
-{
-    cpu_exec_realizefn(cs, &local_err);
-} 
+                /* Include all of the target-specific constraints. */
 
-void cpu_exec_realizefn(CPUState *cpu, Error **errp)
-{
-        tcg_exec_realizefn(cpu, errp);
-}
+#undef CONST
+#define CONST(CASE, MASK) \
+    case CASE: def->args_ct[i].ct |= MASK; ct_str++; break;
+#define REGS(CASE, MASK) \
+    case CASE: def->args_ct[i].regs |= MASK; ct_str++; break;
 
-void tcg_exec_realizefn(CPUState *cpu, Error **errp)
-{
-        cc->tcg_ops->initialize();
-}
+#include "tcg-target-con-str.h"
 
-void sw64_translate_init(void)
-{}
-```
+#undef REGS
+#undef CONST
+                default:
+                    /* Typo in TCGTargetOpDef constraint. */
+                    g_assert_not_reached();
+                }
+            }
+        }
 
-> target/sw64/translate.c:初始化TCGContext成员temp
+        /* TCGTargetOpDef entry with too much information? */
+        tcg_debug_assert(i == TCG_MAX_OP_ARGS || tdefs->args_ct_str[i] == NULL);
 
-```c
-void sw64_translate_init(void)
-{
-#define DEF_VAR(V) \
-    { &cpu_##V, #V, offsetof(CPUSW64State, V) }
-
-    typedef struct {
-        TCGv* var;
-        const char* name;
-        int ofs;
-    } GlobalVar;
-
-    static const GlobalVar vars[] = {
-        DEF_VAR(pc),         DEF_VAR(lock_addr),
-        DEF_VAR(lock_flag),  DEF_VAR(lock_success),
-#ifdef SW64_FIXLOCK
-        DEF_VAR(lock_value),
-#endif
-    };
-    cpu_pc = tcg_global_mem_new_i64(cpu_env,
-                                    offsetof(CPUSW64State, pc), "PC");//程序计数器
-
-#undef DEF_VAR
-
-    /* Use the symbolic register names that match the disassembler.  */
-    static const char ireg_names[31][4] = {
-        "v0", "t0", "t1",  "t2",  "t3", "t4",  "t5", "t6", "t7", "s0", "s1",
-        "s2", "s3", "s4",  "s5",  "fp", "a0",  "a1", "a2", "a3", "a4", "a5",
-        "t8", "t9", "t10", "t11", "ra", "t12", "at", "gp", "sp"};
-
-    static const char freg_names[128][4] = {
-        "f0",  "f1",  "f2",  "f3",  "f4",  "f5",  "f6",  "f7",  "f8",  "f9",
-        "f10", "f11", "f12", "f13", "f14", "f15", "f16", "f17", "f18", "f19",
-        "f20", "f21", "f22", "f23", "f24", "f25", "f26", "f27", "f28", "f29",
-        "f30", "f31", "f0",  "f1",  "f2",  "f3",  "f4",  "f5",  "f6",  "f7",
-        "f8",  "f9",  "f10", "f11", "f12", "f13", "f14", "f15", "f16", "f17",
-        "f18", "f19", "f20", "f21", "f22", "f23", "f24", "f25", "f26", "f27",
-        "f28", "f29", "f30", "f31", "f0",  "f1",  "f2",  "f3",  "f4",  "f5",
-        "f6",  "f7",  "f8",  "f9",  "f10", "f11", "f12", "f13", "f14", "f15",
-        "f16", "f17", "f18", "f19", "f20", "f21", "f22", "f23", "f24", "f25",
-        "f26", "f27", "f28", "f29", "f30", "f31", "f0",  "f1",  "f2",  "f3",
-        "f4",  "f5",  "f6",  "f7",  "f8",  "f9",  "f10", "f11", "f12", "f13",
-        "f14", "f15", "f16", "f17", "f18", "f19", "f20", "f21", "f22", "f23",
-        "f24", "f25", "f26", "f27", "f28", "f29", "f30", "f31"};
-
-#ifndef CONFIG_USER_ONLY
-    static const char shadow_names[10][8] = {
-        "hm_p1", "hm_p2",  "hm_p4",  "hm_p5",  "hm_p6",
-        "hm_p7", "hm_p20", "hm_p21", "hm_p22", "hm_p23"};
-    static const int shadow_index[10] = {1, 2, 4, 5, 6, 7, 20, 21, 22, 23};
-#endif
-
-    int i;
-    //整数寄存器ir
-    for (i = 0; i < 31; i++) {
-        cpu_std_ir[i] = tcg_global_mem_new_i64(
-            cpu_env, offsetof(CPUSW64State, ir[i]), ireg_names[i]);
+        /* sort the constraints (XXX: this is just an heuristic) */
+        sort_constraints(def, 0, def->nb_oargs);
+        sort_constraints(def, def->nb_oargs, def->nb_iargs);
     }
-    //浮点寄存器fr
-    for (i = 0; i < 128; i++) {
-        cpu_fr[i] = tcg_global_mem_new_i64(
-            cpu_env, offsetof(CPUSW64State, fr[i]), freg_names[i]);
-    }
-    for (i = 0; i < ARRAY_SIZE(vars); ++i) {//pc,lock_addr,lock_flag,lock_success,lock_value
-        const GlobalVar* v = &vars[i];
-        *v->var = tcg_global_mem_new_i64(cpu_env, v->ofs, v->name);
-    }
-#ifndef CONFIG_USER_ONLY
-    memcpy(cpu_hm_ir, cpu_std_ir, sizeof(cpu_hm_ir));
-    for (i = 0; i < 10; i++) {
-        int r = shadow_index[i];
-        cpu_hm_ir[r] = tcg_global_mem_new_i64(
-            cpu_env, offsetof(CPUSW64State, sr[i]), shadow_names[i]);
-    }
-#endif
 }
 ```
 
-cpu_env 表示tcg_ctx->temps[0]相对于tcg_ctx的offset，tcg_ctx->temps[0].reg=TCG_AREG0,tcg_ctx->temps[0].kind=TEMP_FIXED, tcg_ctx->temps[0].name=env
+#### 中间代码初始化tcg_target_op_def()
 
-TCG_AREG0是架构相关的临时寄存器，在host执行tcg_qemu_tb_exec时使用TCG_AREG0 来访问翻译模式下的env。（aarch64: TCG_AREG0 =TCG_REG_X19,sw_64:TCG_AREG0=TCG_REG_X9）
+> tcg/sw_64/tcg-target.c.inc
 
-tcg_init_ctx.temps[0]
+```c
+static TCGConstraintSetIndex tcg_target_op_def(TCGOpcode op)
+{
+    switch (op) {
+    case INDEX_op_goto_ptr:
+        return C_O0_I1(r);
 
-在执行模式中用来指向env(CPUX86State)
+    case INDEX_op_ld8u_i32:
+    case INDEX_op_ld8s_i32:
+    case INDEX_op_ld16u_i32:
+    case INDEX_op_ld16s_i32:
+    case INDEX_op_ld_i32:
+    case INDEX_op_ld8u_i64:
+    case INDEX_op_ld8s_i64:
+    case INDEX_op_ld16u_i64:
+    case INDEX_op_ld16s_i64:
+    case INDEX_op_ld32u_i64:
+    case INDEX_op_ld32s_i64:
+    case INDEX_op_ld_i64:
+    case INDEX_op_neg_i32:
+    case INDEX_op_neg_i64:
+    case INDEX_op_not_i32:
+    case INDEX_op_not_i64:
+    case INDEX_op_bswap16_i32:
+    case INDEX_op_bswap32_i32:
+    case INDEX_op_bswap16_i64:
+    case INDEX_op_bswap32_i64:
+    case INDEX_op_bswap64_i64:
+    case INDEX_op_ext8s_i32:
+    case INDEX_op_ext16s_i32:
+    case INDEX_op_ext8u_i32:
+    case INDEX_op_ext16u_i32:
+    case INDEX_op_ext8s_i64:
+    case INDEX_op_ext16s_i64:
+    case INDEX_op_ext32s_i64:
+    case INDEX_op_ext8u_i64:
+    case INDEX_op_ext16u_i64:
+    case INDEX_op_ext32u_i64:
+    case INDEX_op_ext_i32_i64:
+    case INDEX_op_extu_i32_i64:
+    case INDEX_op_extract_i32:
+    case INDEX_op_extract_i64:
+    case INDEX_op_sextract_i32:
+    case INDEX_op_sextract_i64:
+        return C_O1_I1(r, r);
 
-temps[1].mem_base指向temps[0]，
+    case INDEX_op_st8_i32:
+    case INDEX_op_st16_i32:
+    case INDEX_op_st_i32:
+    case INDEX_op_st8_i64:
+    case INDEX_op_st16_i64:
+    case INDEX_op_st32_i64:
+    case INDEX_op_st_i64:
+        return C_O0_I2(rZ, r);
 
-也就是CPUX86State,
+    case INDEX_op_add_i32:
+    case INDEX_op_add_i64:
+    case INDEX_op_sub_i32:
+    case INDEX_op_sub_i64:
+        return C_O1_I2(r, r, rU);//gaoqing,rA
 
-temps[1].mem_offset表示cc_op在CPUX86State的偏移
+    case INDEX_op_setcond_i32:
+    case INDEX_op_setcond_i64:
+        return C_O1_I2(r, r, rU);//compare,gaoqing,rA
 
-r9的值加上偏移量得到的地址取值就是各个汇编语言中寄存器r几的值
+    case INDEX_op_mul_i32:
+    case INDEX_op_mul_i64:
+    case INDEX_op_div_i32:
+    case INDEX_op_div_i64:
+    case INDEX_op_divu_i32:
+    case INDEX_op_divu_i64:
+    case INDEX_op_rem_i32:
+    case INDEX_op_rem_i64:
+    case INDEX_op_remu_i32:
+    case INDEX_op_remu_i64:
+    case INDEX_op_muluh_i64:
+    case INDEX_op_mulsh_i64:
+        return C_O1_I2(r, r, r);
+
+    case INDEX_op_and_i32:
+    case INDEX_op_and_i64:
+    case INDEX_op_or_i32:
+    case INDEX_op_or_i64:
+    case INDEX_op_xor_i32:
+    case INDEX_op_xor_i64:
+    case INDEX_op_andc_i32:
+    case INDEX_op_andc_i64:
+    case INDEX_op_orc_i32:
+    case INDEX_op_orc_i64:
+    case INDEX_op_eqv_i32:
+    case INDEX_op_eqv_i64:
+        return C_O1_I2(r, r, rU);//gaoqing,rL
+
+    case INDEX_op_shl_i32:
+    case INDEX_op_shr_i32:
+    case INDEX_op_sar_i32:
+    case INDEX_op_rotl_i32:
+    case INDEX_op_rotr_i32:
+    case INDEX_op_shl_i64:
+    case INDEX_op_shr_i64:
+    case INDEX_op_sar_i64:
+    case INDEX_op_rotl_i64:
+    case INDEX_op_rotr_i64:
+        return C_O1_I2(r, r, ri);
+
+    case INDEX_op_clz_i32:
+    case INDEX_op_clz_i64:
+        return C_O1_I2(r, r, r);//gaoqing rAL 
+
+    case INDEX_op_ctz_i32:
+    case INDEX_op_ctz_i64:
+        return C_O1_I2(r, r, r);//gaoqing rAL
+
+    case INDEX_op_brcond_i32:
+    case INDEX_op_brcond_i64:
+        return C_O0_I2(r, rU);//gaoqing rA
+
+    case INDEX_op_movcond_i32:
+    case INDEX_op_movcond_i64:
+        return C_O1_I4(r, r, rU, rZ, rZ);//gaoqing rA->rU
+
+    case INDEX_op_qemu_ld_i32:
+    case INDEX_op_qemu_ld_i64:
+        return C_O1_I1(r, l);
+
+    case INDEX_op_qemu_st_i32:
+    case INDEX_op_qemu_st_i64:
+        return C_O0_I2(lZ, l);
+
+    case INDEX_op_deposit_i32:
+    case INDEX_op_deposit_i64:
+        return C_O1_I2(r, 0, rZ);
+
+    case INDEX_op_extract2_i32:
+    case INDEX_op_extract2_i64:
+        return C_O1_I2(r, rZ, rZ);
+
+    case INDEX_op_add2_i32:
+    case INDEX_op_add2_i64:
+    case INDEX_op_sub2_i32:
+    case INDEX_op_sub2_i64:
+        return C_O2_I4(r, r, rZ, rZ, rA, rMZ);
+
+    case INDEX_op_add_vec:
+    case INDEX_op_sub_vec:
+    case INDEX_op_mul_vec:
+    case INDEX_op_xor_vec:
+    case INDEX_op_ssadd_vec:
+    case INDEX_op_sssub_vec:
+    case INDEX_op_usadd_vec:
+    case INDEX_op_ussub_vec:
+    case INDEX_op_smax_vec:
+    case INDEX_op_smin_vec:
+    case INDEX_op_umax_vec:
+    case INDEX_op_umin_vec:
+    case INDEX_op_shlv_vec:
+    case INDEX_op_shrv_vec:
+    case INDEX_op_sarv_vec:
+    //case INDEX_op_aa64_sshl_vec:
+        return C_O1_I2(w, w, w);
+    case INDEX_op_not_vec:
+    case INDEX_op_neg_vec:
+    case INDEX_op_abs_vec:
+    case INDEX_op_shli_vec:
+    case INDEX_op_shri_vec:
+    case INDEX_op_sari_vec:
+        return C_O1_I1(w, w);
+    case INDEX_op_ld_vec:
+    case INDEX_op_dupm_vec:
+        return C_O1_I1(w, r);
+    case INDEX_op_st_vec:
+        return C_O0_I2(w, r);
+    case INDEX_op_dup_vec:
+        return C_O1_I1(w, wr);
+    case INDEX_op_or_vec:
+    case INDEX_op_andc_vec:
+        return C_O1_I2(w, w, wO);
+    case INDEX_op_and_vec:
+    case INDEX_op_orc_vec:
+        return C_O1_I2(w, w, wN);
+    case INDEX_op_cmp_vec:
+        return C_O1_I2(w, w, wZ);
+    case INDEX_op_bitsel_vec:
+        return C_O1_I3(w, w, w, w);
+    //case INDEX_op_aa64_sli_vec:
+    //    return C_O1_I2(w, 0, w);
+
+    default:
+        g_assert_not_reached();
+    }
+}
+```
 
 ## QTAILQ，QTAILQ_ENTRY，QTailQLink
 
@@ -2876,3 +3289,861 @@ Elf文件存在哪儿，中间代码放在哪儿，翻译后的host代码放在�
 重点，指令提取的图来一张，过程说明一下
 
 指令插入，操作链表，结构可以讲一下。
+
+# SW后端
+
+## 后端翻译tcg_gen_code()
+
+> tcg/tcg.c
+
+```c
+int tcg_gen_code(TCGContext *s, TranslationBlock *tb)
+{
+#ifdef CONFIG_PROFILER
+    TCGProfile *prof = &s->prof;
+#endif
+    int i, num_insns;
+    TCGOp *op;
+
+#ifdef CONFIG_PROFILER
+    {
+        int n = 0;
+
+        QTAILQ_FOREACH(op, &s->ops, link) {
+            n++;
+        }
+        qatomic_set(&prof->op_count, prof->op_count + n);
+        if (n > prof->op_count_max) {
+            qatomic_set(&prof->op_count_max, n);
+        }
+
+        n = s->nb_temps;
+        qatomic_set(&prof->temp_count, prof->temp_count + n);
+        if (n > prof->temp_count_max) {
+            qatomic_set(&prof->temp_count_max, n);
+        }
+    }
+#endif
+
+#ifdef DEBUG_DISAS
+    if (unlikely(qemu_loglevel_mask(CPU_LOG_TB_OP)
+                 && qemu_log_in_addr_range(tb->pc))) {
+        FILE *logfile = qemu_log_lock();
+        qemu_log("OP:\n");
+        tcg_dump_ops(s, false);
+        qemu_log("\n");
+        qemu_log_unlock(logfile);
+    }
+#endif
+
+#ifdef CONFIG_DEBUG_TCG
+    /* Ensure all labels referenced have been emitted.  */
+    {
+        TCGLabel *l;
+        bool error = false;
+
+        QSIMPLEQ_FOREACH(l, &s->labels, next) {
+            if (unlikely(!l->present) && l->refs) {
+                qemu_log_mask(CPU_LOG_TB_OP,
+                              "$L%d referenced but not present.\n", l->id);
+                error = true;
+            }
+        }
+        assert(!error);
+    }
+#endif
+
+#ifdef CONFIG_PROFILER
+    qatomic_set(&prof->opt_time, prof->opt_time - profile_getclock());
+#endif
+
+#ifdef USE_TCG_OPTIMIZATIONS
+    tcg_optimize(s);//中间代码优化
+#endif
+
+#ifdef CONFIG_PROFILER
+    qatomic_set(&prof->opt_time, prof->opt_time + profile_getclock());
+    qatomic_set(&prof->la_time, prof->la_time - profile_getclock());
+#endif
+
+    reachable_code_pass(s);//代码可达性分析
+    liveness_pass_1(s);//TCG变量活性分析
+
+    if (s->nb_indirects > 0) {
+#ifdef DEBUG_DISAS
+        if (unlikely(qemu_loglevel_mask(CPU_LOG_TB_OP_IND)
+                     && qemu_log_in_addr_range(tb->pc))) {
+            FILE *logfile = qemu_log_lock();
+            qemu_log("OP before indirect lowering:\n");
+            tcg_dump_ops(s, false);
+            qemu_log("\n");
+            qemu_log_unlock(logfile);
+        }
+#endif
+        /* Replace indirect temps with direct temps.  */
+        if (liveness_pass_2(s)) {
+            /* If changes were made, re-run liveness.  */
+            liveness_pass_1(s);
+        }
+    }
+
+#ifdef CONFIG_PROFILER
+    qatomic_set(&prof->la_time, prof->la_time + profile_getclock());
+#endif
+
+#ifdef DEBUG_DISAS
+    if (unlikely(qemu_loglevel_mask(CPU_LOG_TB_OP_OPT)
+                 && qemu_log_in_addr_range(tb->pc))) {
+        FILE *logfile = qemu_log_lock();
+        qemu_log("OP after optimization and liveness analysis:\n");
+        tcg_dump_ops(s, true);
+        qemu_log("\n");
+        qemu_log_unlock(logfile);
+    }
+#endif
+
+    tcg_reg_alloc_start(s);
+
+    /*
+     * Reset the buffer pointers when restarting after overflow.
+     * TODO: Move this into translate-all.c with the rest of the
+     * buffer management.  Having only this done here is confusing.
+     */
+    s->code_buf = tcg_splitwx_to_rw(tb->tc.ptr);
+    s->code_ptr = s->code_buf;
+
+#ifdef TCG_TARGET_NEED_LDST_LABELS
+    QSIMPLEQ_INIT(&s->ldst_labels);
+#endif
+#ifdef TCG_TARGET_NEED_POOL_LABELS
+    s->pool_labels = NULL;
+#endif
+
+    num_insns = -1;
+    QTAILQ_FOREACH(op, &s->ops, link) {
+        TCGOpcode opc = op->opc;
+
+#ifdef CONFIG_PROFILER
+        qatomic_set(&prof->table_op_count[opc], prof->table_op_count[opc] + 1);
+#endif
+
+        switch (opc) {
+        case INDEX_op_mov_i32:
+        case INDEX_op_mov_i64:
+        case INDEX_op_mov_vec:
+            tcg_reg_alloc_mov(s, op);
+            break;
+        case INDEX_op_dup_vec:
+            tcg_reg_alloc_dup(s, op);
+            break;
+        case INDEX_op_insn_start:
+            if (num_insns >= 0) {
+                size_t off = tcg_current_code_size(s);
+                s->gen_insn_end_off[num_insns] = off;
+                /* Assert that we do not overflow our stored offset.  */
+                assert(s->gen_insn_end_off[num_insns] == off);
+            }
+            num_insns++;
+            for (i = 0; i < TARGET_INSN_START_WORDS; ++i) {
+                target_ulong a;
+#if TARGET_LONG_BITS > TCG_TARGET_REG_BITS
+                a = deposit64(op->args[i * 2], 32, 32, op->args[i * 2 + 1]);
+#else
+                a = op->args[i];
+#endif
+                s->gen_insn_data[num_insns][i] = a;
+            }
+            break;
+        case INDEX_op_discard:
+            temp_dead(s, arg_temp(op->args[0]));
+            break;
+        case INDEX_op_set_label:
+            tcg_reg_alloc_bb_end(s, s->reserved_regs);
+            tcg_out_label(s, arg_label(op->args[0]));
+            break;
+        case INDEX_op_call:
+            tcg_reg_alloc_call(s, op);
+            break;
+        case INDEX_op_dup2_vec:
+            if (tcg_reg_alloc_dup2(s, op)) {
+                break;
+            }
+            /* fall through */
+        default:
+            /* Sanity check that we've not introduced any unhandled opcodes. */
+            tcg_debug_assert(tcg_op_supported(opc));//中间代码支持性检查
+            /* Note: in order to speed up the code, it would be much
+               faster to have specialized register allocator functions for
+               some common argument patterns */
+            tcg_reg_alloc_op(s, op);//
+            break;
+        }
+#ifdef CONFIG_DEBUG_TCG
+        check_regs(s);
+#endif
+        /* Test for (pending) buffer overflow.  The assumption is that any
+           one operation beginning below the high water mark cannot overrun
+           the buffer completely.  Thus we can test for overflow after
+           generating code without having to check during generation.  */
+        if (unlikely((void *)s->code_ptr > s->code_gen_highwater)) {
+            return -1;
+        }
+        /* Test for TB overflow, as seen by gen_insn_end_off.  */
+        if (unlikely(tcg_current_code_size(s) > UINT16_MAX)) {
+            return -2;
+        }
+    }
+    tcg_debug_assert(num_insns >= 0);
+    s->gen_insn_end_off[num_insns] = tcg_current_code_size(s);
+
+    /* Generate TB finalization at the end of block */
+#ifdef TCG_TARGET_NEED_LDST_LABELS
+    i = tcg_out_ldst_finalize(s);
+    if (i < 0) {
+        return i;
+    }
+#endif
+#ifdef TCG_TARGET_NEED_POOL_LABELS
+    i = tcg_out_pool_finalize(s);
+    if (i < 0) {
+        return i;
+    }
+#endif
+    if (!tcg_resolve_relocs(s)) {
+        return -2;
+    }
+
+#ifndef CONFIG_TCG_INTERPRETER
+    /* flush instruction cache */
+    flush_idcache_range((uintptr_t)tcg_splitwx_to_rx(s->code_buf),
+                        (uintptr_t)s->code_buf,
+                        tcg_ptr_byte_diff(s->code_ptr, s->code_buf));
+#endif
+
+    return tcg_current_code_size(s);
+}
+```
+
+### 中间代码支持性检查tcg_op_supported()
+
+> tcg/tcg.c
+
+```c
+/* Return true if OP may appear in the opcode stream.
+   Test the runtime variable that controls each opcode.  */
+bool tcg_op_supported(TCGOpcode op)
+{
+    const bool have_vec
+        = TCG_TARGET_HAS_v64 | TCG_TARGET_HAS_v128 | TCG_TARGET_HAS_v256;
+
+    switch (op) {
+    case INDEX_op_discard:
+    case INDEX_op_set_label:
+    case INDEX_op_call:
+    case INDEX_op_br:
+    case INDEX_op_mb:
+    case INDEX_op_insn_start:
+    case INDEX_op_exit_tb:
+    case INDEX_op_goto_tb:
+    case INDEX_op_qemu_ld_i32:
+    case INDEX_op_qemu_st_i32:
+    case INDEX_op_qemu_ld_i64:
+    case INDEX_op_qemu_st_i64:
+        return true;
+
+    case INDEX_op_qemu_st8_i32:
+        return TCG_TARGET_HAS_qemu_st8_i32;
+
+    case INDEX_op_goto_ptr:
+        return TCG_TARGET_HAS_goto_ptr;
+
+    case INDEX_op_mov_i32:
+    case INDEX_op_setcond_i32:
+    case INDEX_op_brcond_i32:
+    case INDEX_op_ld8u_i32:
+    case INDEX_op_ld8s_i32:
+    case INDEX_op_ld16u_i32:
+    case INDEX_op_ld16s_i32:
+    case INDEX_op_ld_i32:
+    case INDEX_op_st8_i32:
+    case INDEX_op_st16_i32:
+    case INDEX_op_st_i32:
+    case INDEX_op_add_i32:
+    case INDEX_op_sub_i32:
+    case INDEX_op_mul_i32:
+    case INDEX_op_and_i32:
+    case INDEX_op_or_i32:
+    case INDEX_op_xor_i32:
+    case INDEX_op_shl_i32:
+    case INDEX_op_shr_i32:
+    case INDEX_op_sar_i32:
+        return true;
+
+    case INDEX_op_movcond_i32:
+        return TCG_TARGET_HAS_movcond_i32;
+    case INDEX_op_div_i32:
+    case INDEX_op_divu_i32:
+        return TCG_TARGET_HAS_div_i32;
+    case INDEX_op_rem_i32:
+    case INDEX_op_remu_i32:
+        return TCG_TARGET_HAS_rem_i32;
+    case INDEX_op_div2_i32:
+    case INDEX_op_divu2_i32:
+        return TCG_TARGET_HAS_div2_i32;
+    case INDEX_op_rotl_i32:
+    case INDEX_op_rotr_i32:
+        return TCG_TARGET_HAS_rot_i32;
+    case INDEX_op_deposit_i32:
+        return TCG_TARGET_HAS_deposit_i32;
+    case INDEX_op_extract_i32:
+        return TCG_TARGET_HAS_extract_i32;
+    case INDEX_op_sextract_i32:
+        return TCG_TARGET_HAS_sextract_i32;
+    case INDEX_op_extract2_i32:
+        return TCG_TARGET_HAS_extract2_i32;
+    case INDEX_op_add2_i32:
+        return TCG_TARGET_HAS_add2_i32;
+    case INDEX_op_sub2_i32:
+        return TCG_TARGET_HAS_sub2_i32;
+    case INDEX_op_mulu2_i32:
+        return TCG_TARGET_HAS_mulu2_i32;
+    case INDEX_op_muls2_i32:
+        return TCG_TARGET_HAS_muls2_i32;
+    case INDEX_op_muluh_i32:
+        return TCG_TARGET_HAS_muluh_i32;
+    case INDEX_op_mulsh_i32:
+        return TCG_TARGET_HAS_mulsh_i32;
+    case INDEX_op_ext8s_i32:
+        return TCG_TARGET_HAS_ext8s_i32;
+    case INDEX_op_ext16s_i32:
+        return TCG_TARGET_HAS_ext16s_i32;
+    case INDEX_op_ext8u_i32:
+        return TCG_TARGET_HAS_ext8u_i32;
+    case INDEX_op_ext16u_i32:
+        return TCG_TARGET_HAS_ext16u_i32;
+    case INDEX_op_bswap16_i32:
+        return TCG_TARGET_HAS_bswap16_i32;
+    case INDEX_op_bswap32_i32:
+        return TCG_TARGET_HAS_bswap32_i32;
+    case INDEX_op_not_i32:
+        return TCG_TARGET_HAS_not_i32;
+    case INDEX_op_neg_i32:
+        return TCG_TARGET_HAS_neg_i32;
+    case INDEX_op_andc_i32:
+        return TCG_TARGET_HAS_andc_i32;
+    case INDEX_op_orc_i32:
+        return TCG_TARGET_HAS_orc_i32;
+    case INDEX_op_eqv_i32:
+        return TCG_TARGET_HAS_eqv_i32;
+    case INDEX_op_nand_i32:
+        return TCG_TARGET_HAS_nand_i32;
+    case INDEX_op_nor_i32:
+        return TCG_TARGET_HAS_nor_i32;
+    case INDEX_op_clz_i32:
+        return TCG_TARGET_HAS_clz_i32;
+    case INDEX_op_ctz_i32:
+        return TCG_TARGET_HAS_ctz_i32;
+    case INDEX_op_ctpop_i32:
+        return TCG_TARGET_HAS_ctpop_i32;
+
+    case INDEX_op_brcond2_i32:
+    case INDEX_op_setcond2_i32:
+        return TCG_TARGET_REG_BITS == 32;
+
+    case INDEX_op_mov_i64:
+    case INDEX_op_setcond_i64:
+    case INDEX_op_brcond_i64:
+    case INDEX_op_ld8u_i64:
+    case INDEX_op_ld8s_i64:
+    case INDEX_op_ld16u_i64:
+    case INDEX_op_ld16s_i64:
+    case INDEX_op_ld32u_i64:
+    case INDEX_op_ld32s_i64:
+    case INDEX_op_ld_i64:
+    case INDEX_op_st8_i64:
+    case INDEX_op_st16_i64:
+    case INDEX_op_st32_i64:
+    case INDEX_op_st_i64:
+    case INDEX_op_add_i64:
+    case INDEX_op_sub_i64:
+    case INDEX_op_mul_i64:
+    case INDEX_op_and_i64:
+    case INDEX_op_or_i64:
+    case INDEX_op_xor_i64:
+    case INDEX_op_shl_i64:
+    case INDEX_op_shr_i64:
+    case INDEX_op_sar_i64:
+    case INDEX_op_ext_i32_i64:
+    case INDEX_op_extu_i32_i64:
+        return TCG_TARGET_REG_BITS == 64;
+
+    case INDEX_op_movcond_i64:
+        return TCG_TARGET_HAS_movcond_i64;
+    case INDEX_op_div_i64:
+    case INDEX_op_divu_i64:
+        return TCG_TARGET_HAS_div_i64;
+    case INDEX_op_rem_i64:
+    case INDEX_op_remu_i64:
+        return TCG_TARGET_HAS_rem_i64;
+    case INDEX_op_div2_i64:
+    case INDEX_op_divu2_i64:
+        return TCG_TARGET_HAS_div2_i64;
+    case INDEX_op_rotl_i64:
+    case INDEX_op_rotr_i64:
+        return TCG_TARGET_HAS_rot_i64;
+    case INDEX_op_deposit_i64:
+        return TCG_TARGET_HAS_deposit_i64;
+    case INDEX_op_extract_i64:
+        return TCG_TARGET_HAS_extract_i64;
+    case INDEX_op_sextract_i64:
+        return TCG_TARGET_HAS_sextract_i64;
+    case INDEX_op_extract2_i64:
+        return TCG_TARGET_HAS_extract2_i64;
+    case INDEX_op_extrl_i64_i32:
+        return TCG_TARGET_HAS_extrl_i64_i32;
+    case INDEX_op_extrh_i64_i32:
+        return TCG_TARGET_HAS_extrh_i64_i32;
+    case INDEX_op_ext8s_i64:
+        return TCG_TARGET_HAS_ext8s_i64;
+    case INDEX_op_ext16s_i64:
+        return TCG_TARGET_HAS_ext16s_i64;
+    case INDEX_op_ext32s_i64:
+        return TCG_TARGET_HAS_ext32s_i64;
+    case INDEX_op_ext8u_i64:
+        return TCG_TARGET_HAS_ext8u_i64;
+    case INDEX_op_ext16u_i64:
+        return TCG_TARGET_HAS_ext16u_i64;
+    case INDEX_op_ext32u_i64:
+        return TCG_TARGET_HAS_ext32u_i64;
+    case INDEX_op_bswap16_i64:
+        return TCG_TARGET_HAS_bswap16_i64;
+    case INDEX_op_bswap32_i64:
+        return TCG_TARGET_HAS_bswap32_i64;
+    case INDEX_op_bswap64_i64:
+        return TCG_TARGET_HAS_bswap64_i64;
+    case INDEX_op_not_i64:
+        return TCG_TARGET_HAS_not_i64;
+    case INDEX_op_neg_i64:
+        return TCG_TARGET_HAS_neg_i64;
+    case INDEX_op_andc_i64:
+        return TCG_TARGET_HAS_andc_i64;
+    case INDEX_op_orc_i64:
+        return TCG_TARGET_HAS_orc_i64;
+    case INDEX_op_eqv_i64:
+        return TCG_TARGET_HAS_eqv_i64;
+    case INDEX_op_nand_i64:
+        return TCG_TARGET_HAS_nand_i64;
+    case INDEX_op_nor_i64:
+        return TCG_TARGET_HAS_nor_i64;
+    case INDEX_op_clz_i64:
+        return TCG_TARGET_HAS_clz_i64;
+    case INDEX_op_ctz_i64:
+        return TCG_TARGET_HAS_ctz_i64;
+    case INDEX_op_ctpop_i64:
+        return TCG_TARGET_HAS_ctpop_i64;
+    case INDEX_op_add2_i64:
+        return TCG_TARGET_HAS_add2_i64;
+    case INDEX_op_sub2_i64:
+        return TCG_TARGET_HAS_sub2_i64;
+    case INDEX_op_mulu2_i64:
+        return TCG_TARGET_HAS_mulu2_i64;
+    case INDEX_op_muls2_i64:
+        return TCG_TARGET_HAS_muls2_i64;
+    case INDEX_op_muluh_i64:
+        return TCG_TARGET_HAS_muluh_i64;
+    case INDEX_op_mulsh_i64:
+        return TCG_TARGET_HAS_mulsh_i64;
+
+    case INDEX_op_mov_vec:
+    case INDEX_op_dup_vec:
+    case INDEX_op_dupm_vec:
+    case INDEX_op_ld_vec:
+    case INDEX_op_st_vec:
+    case INDEX_op_add_vec:
+    case INDEX_op_sub_vec:
+    case INDEX_op_and_vec:
+    case INDEX_op_or_vec:
+    case INDEX_op_xor_vec:
+    case INDEX_op_cmp_vec:
+        return have_vec;
+    case INDEX_op_dup2_vec:
+        return have_vec && TCG_TARGET_REG_BITS == 32;
+    case INDEX_op_not_vec:
+        return have_vec && TCG_TARGET_HAS_not_vec;
+    case INDEX_op_neg_vec:
+        return have_vec && TCG_TARGET_HAS_neg_vec;
+    case INDEX_op_abs_vec:
+        return have_vec && TCG_TARGET_HAS_abs_vec;
+    case INDEX_op_andc_vec:
+        return have_vec && TCG_TARGET_HAS_andc_vec;
+    case INDEX_op_orc_vec:
+        return have_vec && TCG_TARGET_HAS_orc_vec;
+    case INDEX_op_mul_vec:
+        return have_vec && TCG_TARGET_HAS_mul_vec;
+    case INDEX_op_shli_vec:
+    case INDEX_op_shri_vec:
+    case INDEX_op_sari_vec:
+        return have_vec && TCG_TARGET_HAS_shi_vec;
+    case INDEX_op_shls_vec:
+    case INDEX_op_shrs_vec:
+    case INDEX_op_sars_vec:
+        return have_vec && TCG_TARGET_HAS_shs_vec;
+    case INDEX_op_shlv_vec:
+    case INDEX_op_shrv_vec:
+    case INDEX_op_sarv_vec:
+        return have_vec && TCG_TARGET_HAS_shv_vec;
+    case INDEX_op_rotli_vec:
+        return have_vec && TCG_TARGET_HAS_roti_vec;
+    case INDEX_op_rotls_vec:
+        return have_vec && TCG_TARGET_HAS_rots_vec;
+    case INDEX_op_rotlv_vec:
+    case INDEX_op_rotrv_vec:
+        return have_vec && TCG_TARGET_HAS_rotv_vec;
+    case INDEX_op_ssadd_vec:
+    case INDEX_op_usadd_vec:
+    case INDEX_op_sssub_vec:
+    case INDEX_op_ussub_vec:
+        return have_vec && TCG_TARGET_HAS_sat_vec;
+    case INDEX_op_smin_vec:
+    case INDEX_op_umin_vec:
+    case INDEX_op_smax_vec:
+    case INDEX_op_umax_vec:
+        return have_vec && TCG_TARGET_HAS_minmax_vec;
+    case INDEX_op_bitsel_vec:
+        return have_vec && TCG_TARGET_HAS_bitsel_vec;
+    case INDEX_op_cmpsel_vec:
+        return have_vec && TCG_TARGET_HAS_cmpsel_vec;
+
+    default:
+        tcg_debug_assert(op > INDEX_op_last_generic && op < NB_OPS);
+        return true;
+    }
+}
+```
+
+### 为中间代码参数分配寄存器tcg_reg_alloc_op()
+
+> tcg/tcg.c
+
+```c
+static void tcg_reg_alloc_op(TCGContext *s, const TCGOp *op)
+{
+    const TCGLifeData arg_life = op->life;
+    const TCGOpDef * const def = &tcg_op_defs[op->opc];
+    TCGRegSet i_allocated_regs;
+    TCGRegSet o_allocated_regs;
+    int i, k, nb_iargs, nb_oargs;
+    TCGReg reg;
+    TCGArg arg;
+    const TCGArgConstraint *arg_ct;
+    TCGTemp *ts;//temp
+    TCGArg new_args[TCG_MAX_OP_ARGS];
+    int const_args[TCG_MAX_OP_ARGS];
+
+    nb_oargs = def->nb_oargs;
+    nb_iargs = def->nb_iargs;
+
+    /* copy constants */ //拷贝常量
+    memcpy(new_args + nb_oargs + nb_iargs, 
+           op->args + nb_oargs + nb_iargs,
+           sizeof(TCGArg) * def->nb_cargs);
+
+    i_allocated_regs = s->reserved_regs;
+    o_allocated_regs = s->reserved_regs;
+
+    /* satisfy input constraints */ //输入满足约束，为参数分配寄存器
+    for (k = 0; k < nb_iargs; k++) {
+        TCGRegSet i_preferred_regs, o_preferred_regs;
+
+        i = def->args_ct[nb_oargs + k].sort_index;//分配优先级排序
+        arg = op->args[i];//取出参数
+        arg_ct = &def->args_ct[i];//取出约束条件
+        ts = arg_temp(arg);//arg类型转temp类型,p *ts
+
+        if (ts->val_type == TEMP_VAL_CONST
+            && tcg_target_const_match(ts->val, ts->type, arg_ct)) {//参数是常量且满足约束条件
+            /* constant is OK for instruction */
+            const_args[i] = 1;//1表示常量
+            new_args[i] = ts->val;//new_args为常量
+            continue;
+        }
+
+        i_preferred_regs = o_preferred_regs = 0;
+        if (arg_ct->ialias) {
+            o_preferred_regs = op->output_pref[arg_ct->alias_index];
+
+            /*
+             * If the input is readonly, then it cannot also be an
+             * output and aliased to itself.  If the input is not
+             * dead after the instruction, we must allocate a new
+             * register and move it.
+             */
+            if (temp_readonly(ts) || !IS_DEAD_ARG(i)) {
+                goto allocate_in_reg;
+            }
+
+            /*
+             * Check if the current register has already been allocated
+             * for another input aliased to an output.
+             */
+            if (ts->val_type == TEMP_VAL_REG) {
+                reg = ts->reg;
+                for (int k2 = 0; k2 < k; k2++) {
+                    int i2 = def->args_ct[nb_oargs + k2].sort_index;
+                    if (def->args_ct[i2].ialias && reg == new_args[i2]) {
+                        goto allocate_in_reg;
+                    }
+                }
+            }
+            i_preferred_regs = o_preferred_regs;
+        }
+
+        temp_load(s, ts, arg_ct->regs, i_allocated_regs, i_preferred_regs);//分配寄存器
+        reg = ts->reg;
+
+        if (!tcg_regset_test_reg(arg_ct->regs, reg)) {
+ allocate_in_reg:
+            /*
+             * Allocate a new register matching the constraint
+             * and move the temporary register into it.
+             */
+            temp_load(s, ts, tcg_target_available_regs[ts->type],
+                      i_allocated_regs, 0);
+            reg = tcg_reg_alloc(s, arg_ct->regs, i_allocated_regs,
+                                o_preferred_regs, ts->indirect_base);
+            if (!tcg_out_mov(s, ts->type, reg, ts->reg)) {
+                /*
+                 * Cross register class move not supported.  Sync the
+                 * temp back to its slot and load from there.
+                 */
+                temp_sync(s, ts, i_allocated_regs, 0, 0);
+                tcg_out_ld(s, ts->type, reg,
+                           ts->mem_base->reg, ts->mem_offset);
+            }
+        }
+        new_args[i] = reg;//该参数分配的寄存器名称
+        const_args[i] = 0;//与new_args对应，0表示寄存器，1表示常量
+        tcg_regset_set_reg(i_allocated_regs, reg);
+    }
+
+    /* mark dead temporaries and free the associated registers */
+    for (i = nb_oargs; i < nb_oargs + nb_iargs; i++) {
+        if (IS_DEAD_ARG(i)) {
+            temp_dead(s, arg_temp(op->args[i]));//释放分配好temp
+        }
+    }
+
+    if (def->flags & TCG_OPF_COND_BRANCH) {
+        tcg_reg_alloc_cbranch(s, i_allocated_regs);
+    } else if (def->flags & TCG_OPF_BB_END) {
+        tcg_reg_alloc_bb_end(s, i_allocated_regs);
+    } else {
+        if (def->flags & TCG_OPF_CALL_CLOBBER) {
+            /* XXX: permit generic clobber register list ? */ 
+            for (i = 0; i < TCG_TARGET_NB_REGS; i++) {
+                if (tcg_regset_test_reg(tcg_target_call_clobber_regs, i)) {
+                    tcg_reg_free(s, i, i_allocated_regs);
+                }
+            }
+        }
+        if (def->flags & TCG_OPF_SIDE_EFFECTS) {
+            /* sync globals if the op has side effects and might trigger
+               an exception. */
+            sync_globals(s, i_allocated_regs);
+        }
+
+        /* satisfy the output constraints */
+        for(k = 0; k < nb_oargs; k++) {
+            i = def->args_ct[k].sort_index;
+            arg = op->args[i];
+            arg_ct = &def->args_ct[i];
+            ts = arg_temp(arg);
+
+            /* ENV should not be modified.  */
+            tcg_debug_assert(!temp_readonly(ts));
+
+            if (arg_ct->oalias && !const_args[arg_ct->alias_index]) {
+                reg = new_args[arg_ct->alias_index];
+            } else if (arg_ct->newreg) {
+                reg = tcg_reg_alloc(s, arg_ct->regs,
+                                    i_allocated_regs | o_allocated_regs,
+                                    op->output_pref[k], ts->indirect_base);
+            } else {
+                reg = tcg_reg_alloc(s, arg_ct->regs, o_allocated_regs,
+                                    op->output_pref[k], ts->indirect_base);
+            }
+            tcg_regset_set_reg(o_allocated_regs, reg);
+            if (ts->val_type == TEMP_VAL_REG) {
+                s->reg_to_temp[ts->reg] = NULL;
+            }
+            ts->val_type = TEMP_VAL_REG;
+            ts->reg = reg;
+            /*
+             * Temp value is modified, so the value kept in memory is
+             * potentially not the same.
+             */
+            ts->mem_coherent = 0;
+            s->reg_to_temp[reg] = ts;
+            new_args[i] = reg;
+        }
+    }
+
+    /* emit instruction */
+    if (def->flags & TCG_OPF_VECTOR) {
+        tcg_out_vec_op(s, op->opc, TCGOP_VECL(op), TCGOP_VECE(op),
+                       new_args, const_args);
+    } else {
+        tcg_out_op(s, op->opc, new_args, const_args);//翻译中间码
+    }
+
+    /* move the outputs in the correct register if needed */
+    for(i = 0; i < nb_oargs; i++) {
+        ts = arg_temp(op->args[i]);
+
+        /* ENV should not be modified.  */
+        tcg_debug_assert(!temp_readonly(ts));
+
+        if (NEED_SYNC_ARG(i)) {
+            temp_sync(s, ts, o_allocated_regs, 0, IS_DEAD_ARG(i));//同步到内存
+        } else if (IS_DEAD_ARG(i)) {
+            temp_dead(s, ts);
+        }
+    }
+}
+```
+
+#### 常量约束匹配tcg-target-const-match()
+
+> tcg/sw_64/tcg-target.c.inc
+
+```c
+/* sw test if a constant matches the constraint */
+static int tcg_target_const_match(tcg_target_long val, TCGType type,
+                                  const TCGArgConstraint *arg_ct)
+{
+    int ct = arg_ct->ct;//约束匹配
+
+    if (ct & TCG_CT_CONST) {
+        return 1;
+    }
+    if (type == TCG_TYPE_I32) {
+        val = (int32_t)val;
+    }
+    if ((ct & TCG_CT_CONST_U8) && 0 <= val && val <= 255) {
+        return 1;
+    }
+    if ((ct & TCG_CT_CONST_LONG) ) {
+        return 1;
+    }
+    if ((ct & TCG_CT_CONST_MONE) ) {
+        return 1;
+    }
+    if ((ct & TCG_CT_CONST_ORRI) ) {
+        return 1;
+    }
+    if ((ct & TCG_CT_CONST_WORD) ) {
+        return 1;
+    }
+    if ((ct & TCG_CT_CONST_ZERO) && val == 0) {
+        return 1;
+    }
+    return 0;
+}
+```
+
+##### 约束条件宏定义
+
+> include/tcg/tcg.h
+
+```c
+#define TCG_CT_CONST  1 /* any constant of register size */
+```
+
+> tcg/sw_64/tcg-target.c.inc
+
+```c
+/*
+* refer to mips
+* contact with "tcg-target-con-str.h"
+*/
+#define TCG_CT_CONST_ZERO 0x100
+#define TCG_CT_CONST_LONG 0x200
+#define TCG_CT_CONST_MONE 0x400
+#define TCG_CT_CONST_ORRI 0x800
+#define TCG_CT_CONST_WORD 0X1000
+#define TCG_CT_CONST_U8 0x2000
+#define TCG_CT_CONST_S8 0X4000
+```
+
+##### 寄存器字母及约束字母定义
+
+> tcg/sw_64/tcg-target-con-str.h
+
+```c
+/*
+ * Define constraint letters for register sets:
+ * REGS(letter, register_mask)
+ */
+REGS('r', ALL_GENERAL_REGS)
+REGS('l', ALL_QLDST_REGS)
+REGS('w', ALL_VECTOR_REGS)
+
+/*
+ * Define constraint letters for constants:
+ * CONST(letter, TCG_CT_CONST_* bit set)
+ */
+CONST('Z', TCG_CT_CONST_ZERO)
+CONST('A', TCG_CT_CONST_LONG) // ?
+CONST('M', TCG_CT_CONST_MONE)
+CONST('O', TCG_CT_CONST_ORRI)
+CONST('W', TCG_CT_CONST_WORD)
+CONST('L', TCG_CT_CONST_LONG)
+CONST('U', TCG_CT_CONST_U8)
+CONST('S', TCG_CT_CONST_S8)   
+CONST('T', TCG_CT_CONST_S16)//feiyang 16位有符号整数
+```
+
+##### 中间码约束集合定义
+
+> tcg/sw_64/tcg-target-con-set.h
+
+```c
+/*
+ * C_On_Im(...) defines a constraint set with <n> outputs and <m> inputs.
+ * Each operand should be a sequence of constraint letters as defined by
+ * tcg-target-con-str.h; the constraint combination is inclusive or.
+ */
+C_O0_I1(r)
+C_O0_I2(lZ, l)
+C_O0_I2(r, rA)
+C_O0_I2(rZ, r)
+C_O0_I2(w, r)
+C_O1_I1(r, l)
+C_O1_I1(r, r)
+C_O1_I1(w, r)
+C_O1_I1(w, w)
+C_O1_I1(w, wr)
+C_O1_I2(r, 0, rZ)
+C_O1_I2(r, r, r)
+C_O1_I2(r, r, rA)
+C_O1_I2(r, r, rAL)
+C_O1_I2(r, r, ri)
+C_O1_I2(r, r, rL)
+C_O1_I2(r, rZ, rZ)
+C_O1_I2(w, 0, w)
+C_O1_I2(w, w, w)
+C_O1_I2(w, w, wN)
+C_O1_I2(w, w, wO)
+C_O1_I2(w, w, wZ)
+C_O1_I3(w, w, w, w)
+C_O1_I4(r, r, rA, rZ, rZ)
+C_O2_I4(r, r, rZ, rZ, rA, rMZ)
+
+//gaoqing 
+C_O1_I4(r, r, rU, rZ, rZ)
+C_O0_I2(r, rU)
+C_O1_I2(r, r, rU)
+
+//feiyang
+C_O1_I2(r, r, T)
+```

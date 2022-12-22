@@ -21,9 +21,9 @@
 标识符格式：
 
 ```shell
-ualpha        ::=  "a"..."z" | "A"..."Z" | "_"                
-TokIdentifier ::=  ("0"..."9")* ualpha (ualpha | "0"..."9")*
-TokVarName    ::=  "$" ualpha (ualpha |  "0"..."9")*        
+ualpha        ::=  "a"..."z" | "A"..."Z" | "_"               # 大小写字母或下划线    
+TokIdentifier ::=  ("0"..."9")* ualpha (ualpha | "0"..."9")* # 标识符可以以整数开头
+TokVarName    ::=  "$" ualpha (ualpha |  "0"..."9")*         # dag中的name
 ```
 
 注意，与大多数语言不同，TableGen允许`TokIdentifier`以整数开头。在出现歧义的情况下，标记被解释为数字字面量，而不是标识符。
@@ -86,9 +86,9 @@ Type    ::=  "bit" | "int" | "string" | "dag"
 ClassID ::=  TokIdentifier
 ```
 
-- `bit`：位类型。表示一个值为0或者1的布尔值。
+- `bit`：位类型。表示一个0或1的布尔值。
 
-- `int`：整型。表示64位整型数。
+- `int`：整型。表示64位整数。
 
 - `string`：字符串类型。表示任意长度的有序字符序列。
 
@@ -110,13 +110,13 @@ dag实例的语法如下:
 
 操作符必须呈现并且必须有记录。可以有零个或多个参数，用逗号分隔。操作符和参数可以有三种格式。
 
-| 格式         | 说明         |
-| ---------- | ---------- |
-| value      | 参数值        |
-| value:name | 参数值和对应的名称  |
-| name       | 未初始化的参数的名称 |
+| 格式         | 说明       |
+| ---------- | -------- |
+| value      | 参数值      |
+| value:name | 参数值和关联名称 |
+| name       | 未初始化的参数名 |
 
-其中value可以是任何TableGen值。如果该名称name存在，则必须是一个以美元符号($)开头的TokVarName。名称的作用是将DAG中的操作符或参数以特定含义标记，或将一个DAG中的参数与另一个DAG中的同名参数关联起来。
+其中`value`可以是任何TableGen值。如果`name`存在，则必须是一个以美元符号$开头的`TokVarName`。`name`的作用是在DAG中标记具有特定含义的操作符或参数，或者将一个DAG中的参数与另一个DAG中的同名参数关联起来。
 
 ## 5. 字面量，值
 
@@ -689,7 +689,7 @@ Assert ::=  "assert" condition "," message ";"
 
 # 二、.td文件与.inc文件内容的对应关系
 
-## 指令相关描述
+## 指令相关类的定义
 
 ### 1、指令格式
 
@@ -971,7 +971,7 @@ class MForm<bits<6> opcode, dag iops, dag oops,
 }
 ```
 
-#### 具体指令格式 指令记录
+#### 具体指令格式、指令记录
 
 参考：sw指令手册 4 基本指令系统
 
@@ -1006,7 +1006,7 @@ def LDBU : load_ri<"ldbu", 0x20, GPRC, zextloadi8>;
 
 ### 2、操作数
 
-#### DAGOperand Operand
+#### DAGOperand、Operand
 
 > include/llvm/Target/Target.td
 
@@ -1080,7 +1080,7 @@ def u64imm  : Operand<i64>{
 
 ### 3、寄存器
 
-#### RegisterClass Register
+#### RegisterClass、Register
 
 > include/llvm/Target/Target.td
 
@@ -1143,6 +1143,138 @@ class Register<string n, list<string> altNames = []> {
 
   bit isArtificial = 0;
 }
+
+// DAGOperand - An empty base class that unifies RegisterClass's and other forms
+// of Operand's that are legal as type qualifiers in DAG patterns.  This should
+// only ever be used for defining multiclasses that are polymorphic over both
+// RegisterClass's and other Operand's.
+class DAGOperand {
+  string OperandNamespace = "MCOI";
+  string DecoderMethod = "";
+}
+
+// RegisterClass - Now that all of the registers are defined, and aliases
+// between registers are defined, specify which registers belong to which
+// register classes.  This also defines the default allocation order of
+// registers by register allocators.
+//
+class RegisterClass<string namespace, list<ValueType> regTypes, int alignment,
+                    dag regList, RegAltNameIndex idx = NoRegAltName>
+  : DAGOperand {
+  string Namespace = namespace;
+
+  // The register size/alignment information, parameterized by a HW mode.
+  RegInfoByHwMode RegInfos;
+
+  // RegType - Specify the list ValueType of the registers in this register
+  // class.  Note that all registers in a register class must have the same
+  // ValueTypes.  This is a list because some targets permit storing different
+  // types in same register, for example vector values with 128-bit total size,
+  // but different count/size of items, like SSE on x86.
+  //
+  list<ValueType> RegTypes = regTypes;
+
+  // Size - Specify the spill size in bits of the registers.  A default value of
+  // zero lets tablgen pick an appropriate size.
+  int Size = 0;
+
+  // Alignment - Specify the alignment required of the registers when they are
+  // stored or loaded to memory.
+  //
+  int Alignment = alignment;
+
+  // CopyCost - This value is used to specify the cost of copying a value
+  // between two registers in this register class. The default value is one
+  // meaning it takes a single instruction to perform the copying. A negative
+  // value means copying is extremely expensive or impossible.
+  int CopyCost = 1;
+
+  // MemberList - Specify which registers are in this class.  If the
+  // allocation_order_* method are not specified, this also defines the order of
+  // allocation used by the register allocator.
+  //
+  dag MemberList = regList;
+
+  // AltNameIndex - The alternate register name to use when printing operands
+  // of this register class. Every register in the register class must have
+  // a valid alternate name for the given index.
+  RegAltNameIndex altNameIndex = idx;
+
+  // isAllocatable - Specify that the register class can be used for virtual
+  // registers and register allocation.  Some register classes are only used to
+  // model instruction operand constraints, and should have isAllocatable = 0.
+  bit isAllocatable = 1;
+
+  // AltOrders - List of alternative allocation orders. The default order is
+  // MemberList itself, and that is good enough for most targets since the
+  // register allocators automatically remove reserved registers and move
+  // callee-saved registers to the end.
+  list<dag> AltOrders = [];
+
+  // AltOrderSelect - The body of a function that selects the allocation order
+  // to use in a given machine function. The code will be inserted in a
+  // function like this:
+  //
+  //   static inline unsigned f(const MachineFunction &MF) { ... }
+  //
+  // The function should return 0 to select the default order defined by
+  // MemberList, 1 to select the first AltOrders entry and so on.
+  code AltOrderSelect = [{}];
+
+  // Specify allocation priority for register allocators using a greedy
+  // heuristic. Classes with higher priority values are assigned first. This is
+  // useful as it is sometimes beneficial to assign registers to highly
+  // constrained classes first. The value has to be in the range [0,63].
+  int AllocationPriority = 0;
+
+  // The diagnostic type to present when referencing this operand in a match
+  // failure error message. If this is empty, the default Match_InvalidOperand
+  // diagnostic type will be used. If this is "<name>", a Match_<name> enum
+  // value will be generated and used for this operand type. The target
+  // assembly parser is responsible for converting this into a user-facing
+  // diagnostic message.
+  string DiagnosticType = "";
+
+  // A diagnostic message to emit when an invalid value is provided for this
+  // register class when it is being used an an assembly operand. If this is
+  // non-empty, an anonymous diagnostic type enum value will be generated, and
+  // the assembly matcher will provide a function to map from diagnostic types
+  // to message strings.
+  string DiagnosticString = "";
+}
+
+// The memberList in a RegisterClass is a dag of set operations. TableGen
+// evaluates these set operations and expand them into register lists. These
+// are the most common operation, see test/TableGen/SetTheory.td for more
+// examples of what is possible:
+//
+// (add R0, R1, R2) - Set Union. Each argument can be an individual register, a
+// register class, or a sub-expression. This is also the way to simply list
+// registers.
+//
+// (sub GPR, SP) - Set difference. Subtract the last arguments from the first.
+//
+// (and GPR, CSR) - Set intersection. All registers from the first set that are
+// also in the second set.
+//
+// (sequence "R%u", 0, 15) -> [R0, R1, ..., R15]. Generate a sequence of
+// numbered registers.  Takes an optional 4th operand which is a stride to use
+// when generating the sequence.
+//
+// (shl GPR, 4) - Remove the first N elements.
+//
+// (trunc GPR, 4) - Truncate after the first N elements.
+//
+// (rotl GPR, 1) - Rotate N places to the left.
+//
+// (rotr GPR, 1) - Rotate N places to the right.
+//
+// (decimate GPR, 2) - Pick every N'th element, starting with the first.
+//
+// (interleave A, B, ...) - Interleave the elements from each argument list.
+//
+// All of these operators work on ordered sets, not lists. That means
+// duplicates are removed from sub-expressions.
 ```
 
 #### Sw64寄存器 具体寄存器 寄存器类
@@ -1187,9 +1319,9 @@ def GPRC : RegisterClass<"Sw64", [i64], 64, (add
      R15, R30, R31)>; //zero
 ```
 
-### 4、Selection DAG
+### 4、SelectionDAG
 
-#### SDNodeProperty SDPatternOperator
+#### SDNodeProperty、SDPatternOperator
 
 > include/llvm/CodeGen/SDNodeProperties.td
 
@@ -1364,11 +1496,14 @@ def load : PatFrag<(ops node:$ptr), (unindexedload node:$ptr)> {
 }
 ```
 
-### 6、调度模型
+### 6、调度类型
 
 > include/llvm/Target/TargetSchedule.td
 
 ```cpp
+// A target architecture may define SchedReadWrite types and associate
+// them with instruction operands.
+class SchedReadWrite;  
 // List the per-operand types that map to the machine model of an
 // instruction. One SchedWrite type must be listed for each explicit
 // def operand in order. Additional SchedWrite types may optionally be
@@ -1382,9 +1517,22 @@ def load : PatFrag<(ops node:$ptr), (unindexedload node:$ptr)> {
 class Sched<list<SchedReadWrite> schedrw> {
   list<SchedReadWrite> SchedRW = schedrw;
 }
+// Define a scheduler resource associated with a def operand.
+class SchedWrite : SchedReadWrite; 
+// Map a set of opcodes to a list of SchedReadWrite types. This allows
+// the subtarget to easily override specific operations.
+//
+// SchedModel ties this opcode mapping to a processor.
+class InstRW<list<SchedReadWrite> rw, dag instrlist> {
+  list<SchedReadWrite> OperandReadWrites = rw;
+  dag Instrs = instrlist;
+  SchedMachineModel SchedModel = ?;
+  // Allow a subtarget to mark some instructions as unsupported.
+  bit Unsupported = 0;
+}
 ```
 
-列出映射到一条指令的机器模型的每个操作数类型。必须按顺序为每个显式def操作数列出一个SchedWrite类型。可以选择为隐式def操作数列出其他SchedWrite类型。可以选择按顺序列出SchedRead类型以使用操作数。def的顺序相对于use的顺序来说无关紧要。这样，同一个ScheduleReadWrite列表可以用于一条操作的多种形式。例如，双地址指令可以有两个绑定操作数或一个同时读取和写入寄存器reg的操作数。在这两种情况下，我们都有一个任意顺序的SchedWrite和一个SchedRead。
+列出映射到一条指令的机器模型的每个操作数类型。必须按顺序为每个显式def操作数列出一个SchedWrite类型。可以选择为隐式def操作数列出其他SchedWrite类型。可以选择按顺序列出SchedRead类型为use操作数。def的顺序相对于use的顺序来说无关紧要。这样，同一个ScheduleReadWrite列表可以用于一条操作的多种形式。例如，双地址指令可以有两个绑定操作数或一个同时读取和写入寄存器reg的操作数。在这两种情况下，我们都有一个任意顺序的SchedWrite和一个SchedRead。
 
 ### 指令示例
 
@@ -1399,7 +1547,7 @@ def PseudoBrind : PseudoInstSw64<(outs), (ins GPRC:$RB), "",
 def LDL  : load_ri<"ldl",  0x23, GPRC, load>;
 ```
 
-以gen-InstrInfo-后端为例：
+以--gen-instr-info后端为例：
 
 ## 1. 指令排序，输出指令枚举值
 
@@ -1535,12 +1683,12 @@ HANDLE_TARGET_OPCODE(PHI) # 架构无关的固定指令，Target.td中有对应�
 > build/lib/Target/Sw64/Sw64GenInstrInfo.inc
 
 ```shell
-PHI    = 0, # 架构无关的固定指令
-PseudoBrind    = 165, # 伪指令
-LDL    = 367, # 一般指令
+PHI = 0, # 架构无关的固定指令
+PseudoBrind = 165, # 伪指令
+LDL = 367, # 一般指令
 ```
 
-## 2. 指令按调度类型分组，输出枚举值
+## 2. 将指令按调度分类，输出枚举值
 
 CodeGenSchedModels（即引用SchedModels）的容器SchedClasses保存了已知的所有调度类型，CodeGenSchedClass的来源有两种，第一种来自指令定义，包括createInstRWClass()方法从InstRW定义直接得到的类型，它们优先保存在SchedClasses容器，其他推导自ItinRW，InstRW及指令定义中的SchedVariant定义。
 
@@ -1552,7 +1700,7 @@ CodeGenSchedModels（即引用SchedModels）的容器SchedClasses保存了已知
 
 InstRW类将一组操作码映射到SchedReadWrite类型列表。
 
-继承InstRW类的匿名记录（调度类型）的第二个参数就是指令列表。
+继承InstRW类的匿名记录（调度类型）的第二个参数就是指令正则表达式。
 
 ### TableGen源码
 
@@ -1576,6 +1724,20 @@ InstRW类将一组操作码映射到SchedReadWrite类型列表。
 ```
 
 ### *.td
+
+第一类：指令定义中的调度类
+
+第二类：继承InstRW的匿名记录。
+
+> include/llvm/Target/TargetSchedule.td
+
+```shell
+// DAG operator that interprets each DAG arg as a regex pattern for
+// matching Instruction opcode names.
+// The regex must match the beginning of the opcode (as in Python re.match).
+// To avoid matching prefixes, append '$' to the pattern.
+def instregex;//正则表达式
+```
 
 > lib/Target/Sw64/Sw64SchedCore3.td
 

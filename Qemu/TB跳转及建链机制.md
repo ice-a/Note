@@ -48,7 +48,7 @@ struct TCGContext {
 } 
 ```
 
-# 翻译tb_find()
+# tb_find()
 
 ```c
 static inline TranslationBlock *tb_find(CPUState *cpu,
@@ -135,7 +135,7 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
 }
 ```
 
-### SW前端translate_one()
+### SW前端 指令翻译translate_one()
 
 ```c
         case 0x30:
@@ -333,7 +333,7 @@ static inline void gen_goto_tb(DisasContext *s, int tb_num, target_ulong eip)
 }
 ```
 
-### SW后端tcg_reg_alloc_op()
+### SW后端 中间码翻译tcg_reg_alloc_op()
 
 #### 传参
 
@@ -359,7 +359,7 @@ static void tcg_reg_alloc_op(TCGContext *s, const TCGOp *op)
 }
 ```
 
-#### goto_tb、exit_tb
+#### 翻译goto_tb、exit_tb
 
 ```c
 static void tcg_out_op(TCGContext *s, TCGOpcode opc, 
@@ -415,7 +415,7 @@ static void tcg_out_op(TCGContext *s, TCGOpcode opc,
  }
 ```
 
-### tb_reset_jump()
+### 初始化/重置跳转地址tb_reset_jump()
 
 ```c
 /* reset the jump entry 'n' of a TB so that it is not chained to
@@ -427,7 +427,7 @@ static void tcg_out_op(TCGContext *s, TCGOpcode opc,
 }
 ```
 
-#### tb_set_jmp_target()
+#### 设置跳转地址tb_set_jmp_target()
 
 ```c
 void tb_set_jmp_target(TranslationBlock *tb, int n, uintptr_t addr)
@@ -472,7 +472,7 @@ void tb_target_set_jmp_target(uintptr_t tc_ptr, uintptr_t jmp_rx, uintptr_t jmp_
 }
 ```
 
-## tb_add_jump()
+## TB建链tb_add_jump()
 
 ```c
 static inline void tb_add_jump(TranslationBlock *tb, int n,
@@ -490,7 +490,7 @@ static inline void tb_add_jump(TranslationBlock *tb, int n,
         goto out_unlock_next;
     }
     /* Atomically claim the jump destination slot only if it was NULL */
-    //仅当跳转目标插槽（tb->jmp_dest[n]）为NULL时，才原子声明该插槽 ，代表还没设置跳转？没建链？
+    //仅当跳转目标插槽（tb->jmp_dest[n]）为NULL时，才原子声明该插槽 ，代表还没设置跳转，没建链。
     //原子比较和交换操作。若tb->jmp_dest[n]=NULL则tb->jmp_dest[n]=tb_next，返回NULL。
     //若tb->jmp_dest[n]!=NULL则返回tb->jmp_dest[n]。
     old = qatomic_cmpxchg(&tb->jmp_dest[n], (uintptr_t)NULL,
@@ -521,7 +521,7 @@ static inline void tb_add_jump(TranslationBlock *tb, int n,
 }
 ```
 
-### tb_set_jmp_target()
+### 设置跳转地址tb_set_jmp_target()
 
 ```c
 void tb_set_jmp_target(TranslationBlock *tb, int n, uintptr_t addr)
@@ -564,7 +564,7 @@ void tb_target_set_jmp_target(uintptr_t tc_ptr, uintptr_t jmp_rx, uintptr_t jmp_
 }
 ```
 
-# 执行过程cpu_tb_exec()
+# TB块执行函数cpu_tb_exec()
 
 ```c
 static inline void cpu_loop_exec_tb(CPUState *cpu, TranslationBlock *tb,

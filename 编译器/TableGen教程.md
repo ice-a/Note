@@ -8,10 +8,11 @@ build/bin/llvm-tblgen
 # 打印寄存器名
 ./build/bin/llvm-tblgen lib/Target/Sw64/Sw64.td -print-enums -class=Register -I include/ -I lib/Target/Sw64/
 
-TableGen的后端：
-    -print-enums 打印类的所有记录名
+TableGen的后端：-和--有区别吗？
+    --print-enums 打印类的所有记录名
         -class=Register 指定类名
-    -print-records 打印.td文件中所有类和记录
+    --print-records 打印.td文件中所有类和记录
+    --gen-instr-info 打印指令描述
 ```
 
 # 二、TableGen作用

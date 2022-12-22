@@ -170,3 +170,9 @@ libbabeltrace1/stable 1.5.6-2+deb10u1 sw_64
 libsource-highlight4v5/stable 3.1.8-1.2 sw_64
  source highlighting library
 ```
+
+## 3 断点位置错乱
+
+问题原因：修改了源代码没有编译，gdb调试用的仍旧是旧的二进制，显示的是新的源代码，行数不同导致断点位置错乱。
+
+解决方案：不修改源代码，或者重新编译使用新的二进制。

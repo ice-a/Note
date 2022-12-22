@@ -215,7 +215,7 @@ bool TGParser::ParseFile() {
 }
 ```
 
-# 输出过程
+# TableGen后端
 
 ## LLVMTableGenMain
 
@@ -337,7 +337,9 @@ bool LLVMTableGenMain(raw_ostream &OS, RecordKeeper &Records) {
 }
 ```
 
-## EmitInstrInfo
+## --gen-instr-info 后端
+
+### EmitInstrInfo
 
 ```cpp
 void EmitInstrInfo(RecordKeeper &RK, raw_ostream &OS) {
@@ -346,7 +348,9 @@ void EmitInstrInfo(RecordKeeper &RK, raw_ostream &OS) {
 }
 ```
 
-## run
+### run
+
+> utils/TableGen/InstrInfoEmitter.cpp
 
 ```cpp
 // run - Emit the main instruction description records for the target...
@@ -484,7 +488,7 @@ void InstrInfoEmitter::run(raw_ostream &OS) {
 }
 ```
 
-## emitEnums
+### emitEnums
 
 ```cpp
 void InstrInfoEmitter::emitEnums(raw_ostream &OS) {
@@ -531,8 +535,6 @@ void InstrInfoEmitter::emitEnums(raw_ostream &OS) {
 }
 ```
 
---gen-instr-info 后端
-
 一、排序并输出每条指令的枚举值
 
 Target.getInstructionsByEnumValue（）
@@ -543,7 +545,7 @@ Target.getInstructionsByEnumValue（）
 -按名称排序的词典顺序的伪指令；Sw64InstrInfo.td中所有继承PseudoInstSw64的记录就是伪指令。
 -按名称排序的词典顺序的其他指令。与架构有关的指令
 
-二、将指令分类，并输出枚举值
+二、将指令按调度分类，并输出枚举值
 
 CodeGenSchedClass注释：
 

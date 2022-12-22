@@ -15,7 +15,7 @@ Standard options:
   --prefix=PREFIX          install in PREFIX [$prefix] # 安装路径，一般写/usr就会安装在/usr/bin/目录下。
   --interp-prefix=PREFIX   where to find shared libraries, etc.
                            use %M for cpu name [$interp_prefix] # %M是cpu name，即arch
-                 # 动态库路径，执行动态编译文件需要用到。公版默认（/usr/gnemul/qemu-%M），自己的一般写成/etc/qemu-binfmt/%M
+# 动态库路径，执行动态编译文件需要用到。默认参数为/usr/gnemul/qemu-%M（可在configure中看到），自己的一般写成/etc/qemu-binfmt/%M
   --target-list=LIST       set target list (default: build all non-deprecated) # 设定目标架构
 Advanced options (experts only):
   --cross-prefix=PREFIX    use PREFIX for compile tools, PREFIX can be blank [$cross_prefix] # 使用指定编译工具，交叉编译器
@@ -54,11 +54,6 @@ make -j40
 
 ## 缺少动态库
 
-执行动态编译的程序需要拷贝对应架构的动态库到qemu编译参数的指定路径下。
-路径：--interp-prefix=/etc/qemu-binfmt/%M，或通过qemu-xx -h/-help/--help查看。
-
-以下报错均由此原因导致
-
 > 报错信息：
 > 情况一：
 > 
@@ -70,6 +65,11 @@ make -j40
 > 
 > /home/gao/spec2006_x86_ubuntu20.04/bin/specperl: error while loading shared libraries: libnsl.so.1: cannot open shared object file: No such file or directory.
 > spec的命令要用qemu-x86_64执行，需要动态库。
+
+解决方案：执行动态编译的程序需要拷贝对应架构的动态库到qemu编译参数的指定路径下。
+路径：查看config.sh中--interp-prefix= 参数（一般为/etc/qemu-binfmt/%M，默认参数在configure中），或通过qemu-xx -h/-help/--help查看，或通过config.log查看。
+
+动态库：如ubuntu-18.04-x86_64，建软链接名为x86_64(有必要？)，一般需要动态库libc.so.6，与链接器ld-linux-x64-64.so.2（是否对？）。
 
 ## 编译与安装的md5校验
 

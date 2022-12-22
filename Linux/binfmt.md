@@ -1,12 +1,16 @@
-# Redhut系统
+# 基于Redhat的发行版
+
+如：kylin系统
+
+## 配置文件
 
 ```shell
 /proc/sys/fs/binfmt_misc/<name>
+    status 配置状态
+    register 注册配置
 ```
 
-status    配置状态
-
-register 注册配置
+## 配置binfmt命令
 
 ```shell
 # 注册qemu-x86_64配置
@@ -23,7 +27,9 @@ cat /proc/sys/fs/binfmt_misc/qemu-x86_64 # 查看配置文件
 
 用于qemu运行二进制文件，改文件不知道是不是一个效果
 
-# Debian系统
+# 基于Debian的发行版
+
+如：UOS系统
 
 使用binfmt-support（按照qemu中的READEME文件配置）
 
@@ -36,7 +42,7 @@ insmod binfmt_misc.ko # 默认模块已加载
 2、安装binfmt-support
 
 ```shell
-apt-get install binfmt-support # 默认binfmt-support已经安装
+sudo apt-get install binfmt-support # 默认binfmt-support已经安装
 ```
 
 3、注册配置，或者修改配置。配置文件/usr/share/binfmts/qemu-86_64需要从别的地方拷过来，并且修改指定的qemu路径。不建议乱改，建议直接用/usr/bin/ 目录下默认安装的qemu。

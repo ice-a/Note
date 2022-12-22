@@ -1,6 +1,6 @@
 > 鸟哥的Linux私房菜基础学习篇
 
-# 第一章、Linux的规则与安装
+# 第一章 Linux的规则与安装
 
 ## 1.正确关机方法
 
@@ -14,7 +14,7 @@ who
 # 查看网络联机状态
 netstat -a
 # 查看后台执行的程序
-ps -aux
+ps aux
 ```
 
 ### 将数据同步写入硬盘中的命令
@@ -33,9 +33,9 @@ sync
 
 在Linux系统中，每个设备都被当成一个文件来对待。
 
-# 第五章、Linux的文件权限与目录配置
+# 第五章 Linux的文件权限与目录配置
 
-# 第六章、Linux文件与目录
+# 第六章 Linux文件与目录
 
 ## 6.1 目录与路径
 
@@ -84,7 +84,9 @@ df -h 查看硬件使用率
 /opt 存放第三方软件
 /lib 放各种库文件 
 
-# 第七章、Linux磁盘与文件系统管理
+# 第七章 Linux磁盘与文件系统管理
+
+## 符号链接
 
 Hard Link (实体链接, 硬式链接或实际链接)
 
@@ -217,20 +219,24 @@ cp -p # 连同文件的属性、时间一起复制，备份常用
 
 # tar命令
 
-大文件传还是先tar包，再传输
+大文件传还是先压缩，再传输
 
 ```shell
 # 压缩 
-tar -czf 新建文件名.tar.gz 要被压缩的文件
+tar -czf 压缩包名.tar.gz 要压缩的文件
 # 解压 
 tar -xf  要解压的文件 [-C 路径] # 默认解压在当前目录下，-C可以指定解压目录
 ```
 
-解压时出现is in the future时间戳不对，加上--touch，这是因为tar包来自未来，认为不对，需要把时间戳向后调整一天。文件由三种时间戳。
+解压时打印is in the future。这是因为tar包的时间戳来自未来，机器认为时间不对。
+
+解决方法：一、加上--touch 二、调整本机时间戳。
+
+文件由三种时间戳。
 
 ```shell
 date # 查看本机时间
-date -s "xxxx-xx-xx" # 调整本地时间戳
+date -s "xxxx-xx-xx xx:xx:xx" # 调整本地时间戳
 ```
 
 尝试压缩后缀写成tar，但这样压缩包解压出来不是原来的文件。
@@ -241,17 +247,13 @@ date -s "xxxx-xx-xx" # 调整本地时间戳
 unzip xxx.zip
 ```
 
-# grep、cut命令
-
-cat /home/fei/cpu2006-alpha/result/CPU2006.037.log | grep "base ref ratio"  | cut -d " " -f3-6
-cat /home/fei/cpu2006-alpha/result/CPU2006.037.log | grep "base ref ratio"  | cut -d " " -f6
-cat /home/fei/cpu2006-alpha/result/CPU2006.037.log | grep "base ref ratio"  | cut -d " " -f6 | cut -d "," -f1
-cat /home/fei/cpu2006-alpha/result/CPU2006.037.log | grep "base ref ratio"  | cut -d " " -f6 | cut -d "," -f1 | cut -d "=" -f2
+# grep、cut、wc命令
 
 ```shell
 grep -rn 'xxx'  [path] # 默认为. 选取包含xxx的行，n显示行
 grep -v  'xxx'          # 去掉包含xxx的行
 grep --binary-files=without-match # 不匹配二进制文件
+grep |wc -l   # 统计行数 
 ```
 
 ```shell
@@ -286,7 +288,7 @@ apt clean
 
 ```shell
 sudo ln -sf 被链接文件  符号链接 
-
+# 示例
 sudo ln -sf /usr/include/linux/stddef.h stddef.h
 
 file stddef.h 
@@ -346,6 +348,10 @@ ps -ef |grep
 
 top
 
+```shell
+top # 查看所有用户
+top -u  # 查看指定用户
+```
 nohup
 
 ```shell
@@ -388,7 +394,7 @@ source test.sh # 不需要脚本具有执行权限
 # 可以在命令行上组合多个运算符
 ```
 
-# 深度终端deepin-terminal远程管理功能
+# 深度系统终端（deepin-terminal）远程管理功能
 
 添加服务器
 
@@ -408,3 +414,24 @@ source test.sh # 不需要脚本具有执行权限
 | 省略号 `…`      | 可重复使用多次的项。      |
 | 小括号`( )`     | 选项默认值，只用于{}中    |
 | 星号`*`        | 任意              |
+
+# Linux命令行符号总结
+
+左边的内容重定向到右边的文件会覆盖右边的文件内容
+示例1：echo hello>test.txt#输出hello到标准输出并重定向到test.x文件
+如果test.tx不存在会自动创建如果存在会覆盖内容
+示例2：Is test.txt 2>/dev/null 查看test.tx文件明细，并将标准错误输出到黑洞（不输出错误）注意文件描述符必须和s号连在一起，中间没空格
+s>左边的内容重定向到右边的文件会追加右边的文件
+示例：echo hello>>test.txt#输出hello到标准输出并重定向到test.x文件
+如果test.tx不存在会自动创建如果存在会追加到文件后面
+<右边的内容重定向到左边
+示例1：mysql-uroot-proot b2b< source.sql 将source.sq文件放入到mysq执行示例2：cat<testtxt 将test.tx文件内容重定向到ca命令
+多行注释she/脚本xxx代表任意行she/脚本，EOF可以是任意字符，但是结束必须也是该字符，且结束字符在开头独占一行
+：<<EOF
+xxxx
+Xx
+#匿名文件xxxx代表任意行字符EOF代表结束符，可以是任意字符
+<<EOF xXXX EOF示例：cat <<EOF>testtxt
+>hello>world
+>EOF
+#cat一个匿名文件，然后将匿名文件重定向到test.x文件

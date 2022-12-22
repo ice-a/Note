@@ -2,6 +2,14 @@
 
 # 第二章 Git安装
 
+Linux上安装Git
+
+```shell
+sudo apt install git
+```
+
+Windows上安装Git
+
 Gitbash美化，根目录C:\Users\fy\AppData\Local\GitHubDesktop\app-2.5.5\resources\app\git
 
 /etc/profile.d/git-prompt.sh备份
@@ -67,11 +75,11 @@ fi
 
 ```shell
 # 全局的签名设置
-$ git config --global user.name # 用户名
-$ git config --global user.email # 邮箱
+$ git config --global user.name "用户名" # 用户名
+$ git config --global user.email 邮箱    # 邮箱
 # 本地的签名设置，只对当前repository生效
-$ git config user.name # 用户名  默认--local
-$ git config user.email # 邮箱
+$ git config user.name "用户名" # 用户名  默认--local
+$ git config user.email 邮箱    # 邮箱
 ```
 
  查看设置
@@ -86,6 +94,8 @@ $ cat ~/.gitconfig
 # Windows系统中用户主目录路径为/c/Users/username/
 
 # 本地设置在.git/config中
+
+$ git config --list
 ```
 
 说明：
