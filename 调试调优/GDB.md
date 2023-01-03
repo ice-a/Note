@@ -43,7 +43,7 @@ gdb -x gdbinit
 |                                                                                                  |                            |
 | `display(disp) /x,o,t`                                                                           | 监控值                        |
 | `display /i $pc`                                                                                 | 打印下多少条汇编代码，左边箭头是下一条汇编      |
-| `examine(x) /<n/f/u> <addr>`                                                                     | 查看内存                       |
+| `examine(x) /<n/f/u> <addr>`                                                                     | 查看内存地址中的值                       |
 | `ctrl+alt+X`                                                                                     | 打开TUI界面                    |
 | `focus(fs) cmd` <br/>`fs src fs next`                                                            | 聚焦到命令行                     |
 | `set 变量名=值`                                                                                      | 赋值                         |
@@ -70,8 +70,10 @@ gdb -x gdbinit
 
 > 左侧(gdb)不显示，然后输入一个命令直接执行，不需要按enter，怎么实现?
 
+## examine命令
+
 ```shell
-x/<n/f/u>  <addr>
+examine(x) /<n/f/u>  <addr>
 
 n:是正整数，表示需要显示的内存单元的个数，即从当前地址向后显示n个内存单元的内容，
 一个内存单元的大小由第三个参数u定义。

@@ -287,7 +287,7 @@ apt clean
 # 制作符号链接
 
 ```shell
-sudo ln -sf 被链接文件  符号链接 
+sudo ln -sf 被链接文件 符号链接 
 # 示例
 sudo ln -sf /usr/include/linux/stddef.h stddef.h
 
@@ -352,11 +352,17 @@ top
 top # 查看所有用户
 top -u  # 查看指定用户
 ```
+
 nohup
 
 ```shell
 nohup command &
 ```
+
+# strip
+
+库和可执行文件内含符号表symbol tables，可以使用strip命令strip掉，体积会变小，同时无法调试。库strip后会无法链接，不推荐这么做。可执行文件（a.out和elf）可以strip，，执行速度会提升？就是无法调试了。同时make install会有strip步骤，是否与这里相同？
+如何看库和可执行文件是否strip，`file 库/可执行文件`，看是否有stripped这一状态。
 
 # 环境变量
 
@@ -398,7 +404,9 @@ source test.sh # 不需要脚本具有执行权限
 
 添加服务器
 
-执行脚本命令添加到环境变量中.bashrc中
+该功能实际就是执行自动登录脚本，自行写一个类似的脚本后
+
+在.bashrc中将自动登录脚本的路径添加到环境变量PATH中。
 
 # 命令行语法
 

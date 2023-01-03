@@ -3,7 +3,7 @@
 ## 查看设备有没有识别到，有没有挂载
 
 ```shell
-lsblk   //默认在/media/系统用户/
+lsblk   # 默认在 /media/当前用户/
 df -h
 fdisk -l
 ```

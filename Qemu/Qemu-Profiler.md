@@ -3,9 +3,7 @@
 --enable-gprof  
 [超级方便的Linux自带性能分析工具！gprof介绍、安装、使用及实践](https://zhuanlan.zhihu.com/p/385842627)  
 
-![](https://lists.nongnu.org/favicon.ico)
-
-[[Qemu-devel] profiling qemu](https://lists.nongnu.org/archive/html/qemu-devel/2012-02/msg01730.html)
+![](https://lists.nongnu.org/favicon.ico)[[Qemu-devel] profiling qemu](https://lists.nongnu.org/archive/html/qemu-devel/2012-02/msg01730.html)
 
 gprof是一个linux应用程序性能分析工具。gprof可以给出函数的调用时间、调用次数和调用关系。  
 1、配置

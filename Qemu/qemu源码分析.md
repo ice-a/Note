@@ -65,7 +65,7 @@ tcg_out_op()主要功能就是依据TCG操作码，调用对应的转换函数�
   
   gen_intermediate_code,i386_tr_translate_insn在target/i386/tcg/translate.c
 
-# 源码分析 Version 6.0
+# 源码分析 Qemu Version 6.0
 
 用户模式user mode
 
@@ -733,8 +733,8 @@ void tcg_prologue_init(TCGContext *s)
     /* Put the prologue at the beginning of code_gen_buffer.  */
     buf0 = s->code_gen_buffer;//缓冲首地址
     total_size = s->code_gen_buffer_size;//缓冲大小
-    s->code_ptr = buf0;
-    s->code_buf = buf0;
+    s->code_ptr = buf0;//下一条翻译代码保存位置
+    s->code_buf = buf0;//TB块翻译代码的开始位置
     s->data_gen_ptr = NULL;
 
     /*
@@ -769,23 +769,23 @@ void tcg_prologue_init(TCGContext *s)
     }
 #endif
 
-    buf1 = s->code_ptr;//下一条代码
+    buf1 = s->code_ptr;//下一条翻译代码保存位置，即未使用的缓冲首地址
 #ifndef CONFIG_TCG_INTERPRETER
     flush_idcache_range((uintptr_t)tcg_splitwx_to_rx(buf0), (uintptr_t)buf0,
                         tcg_ptr_byte_diff(buf1, buf0));
 #endif
 
     /* Deduct the prologue from the buffer.  */
-    prologue_size = tcg_current_code_size(s);//prologue大小
-    s->code_gen_ptr = buf1;//缓冲未使用
-    s->code_gen_buffer = buf1;//缓冲首地址
-    s->code_buf = buf1;//TB块首地址
-    total_size -= prologue_size;
-    s->code_gen_buffer_size = total_size;
+    prologue_size = tcg_current_code_size(s);//记录生成的prologue大小
+    s->code_gen_ptr = buf1;//未使用的缓冲首地址
+    s->code_gen_buffer = buf1;//未使用的缓冲首地址
+    s->code_buf = buf1;//TB块翻译代码的开始位置
+    total_size -= prologue_size;//缓冲大小减去prologue大小
+    s->code_gen_buffer_size = total_size;//缓冲大小
 
     tcg_register_jit(tcg_splitwx_to_rx(s->code_gen_buffer), total_size);
 
-#ifdef DEBUG_DISAS
+#ifdef DEBUG_DISAS //-d out_asm 打印的是PROLOGUE
     if (qemu_loglevel_mask(CPU_LOG_TB_OUT_ASM)) {
         FILE *logfile = qemu_log_lock();
         qemu_log("PROLOGUE: [size=%zu]\n", prologue_size);
@@ -823,7 +823,7 @@ void tcg_prologue_init(TCGContext *s)
 }
 ```
 
-### tcg_target_qemu_prologue
+### tcg_target_qemu_prologue()
 
 ```c
 static void tcg_target_qemu_prologue(TCGContext *s)
@@ -964,59 +964,59 @@ void cpu_loop(CPUSW64State *env)
         trapnr = cpu_exec(cs);//翻译执行的主流程，返回一个int值，代表处理过程中遇到的异常
         cpu_exec_end(cs);//设置退出翻译执行时的相关参数
         process_queued_cpu_work(cs);//多线程状态下，处理翻译执行过程中其他线程插入的任务
-      switch (trapnr) {//处理系统调用产生的异常
-    case EXCP_OPCDEC://非法的操作码
-            cpu_abort(cs, "ILLEGAL SW64 insn at line %d!", __LINE__);
-    case EXCP_CALL_SYS://正常处理
-        switch (env->error_code) {
-            case 0x83://代表系统调用
-                /* CALLSYS */
-                trapnr = env->ir[IDX_V0];//trapnr系统调用号
-                sysret = do_syscall(env, trapnr,
+        switch (trapnr) {//处理系统调用产生的异常
+	        case EXCP_OPCDEC://非法的操作码
+	            cpu_abort(cs, "ILLEGAL SW64 insn at line %d!", __LINE__);
+	        case EXCP_CALL_SYS://正常处理
+		        switch (env->error_code) {
+		            case 0x83://代表系统调用
+		                /* CALLSYS */
+		                trapnr = env->ir[IDX_V0];//trapnr系统调用号
+		                sysret = do_syscall(env, trapnr,
                                     env->ir[IDX_A0], env->ir[IDX_A1],
                                     env->ir[IDX_A2], env->ir[IDX_A3],
                                     env->ir[IDX_A4], env->ir[IDX_A5],
                                     0, 0);
-                if (sysret == -TARGET_ERESTARTSYS) {
-                    env->pc -= 4;
-                    break;
-                }
-                if (sysret == -TARGET_QEMU_ESIGRETURN) {
-                    break;
-                }
-                /* Syscall writes 0 to V0 to bypass error check, similar
-                   to how this is handled internal to Linux kernel.
-                   (Ab)use trapnr temporarily as boolean indicating error. */
-                trapnr = (env->ir[IDX_V0] != 0 && sysret < 0);//异常trapnr=1否则为0
-                env->ir[IDX_V0] = (trapnr ? -sysret : sysret);//异常返回负值，否则正常返回，r0
-                env->ir[IDX_A3] = trapnr;//r19
-                break;
-            default:
-                printf("UNDO sys_call %lx\n", env->error_code);
-                exit(-1);
-            }
+		                if (sysret == -TARGET_ERESTARTSYS) {
+		                    env->pc -= 4;
+		                    break;
+		                }
+		                if (sysret == -TARGET_QEMU_ESIGRETURN) {
+		                    break;
+		                }
+		                /* Syscall writes 0 to V0 to bypass error check, similar
+		                   to how this is handled internal to Linux kernel.
+		                   (Ab)use trapnr temporarily as boolean indicating error. */
+		                trapnr = (env->ir[IDX_V0] != 0 && sysret < 0);//异常trapnr=1否则为0
+		                env->ir[IDX_V0] = (trapnr ? -sysret : sysret);//异常返回负值，否则正常返回，r0
+		                env->ir[IDX_A3] = trapnr;//r19
+		                break;
+		            default:
+		                printf("UNDO sys_call %lx\n", env->error_code);
+		                exit(-1);
+	            }
             break;
-        case EXCP_MMFAULT:
-            info.si_signo = TARGET_SIGSEGV;
-            info.si_errno = 0;
-            info.si_code = (page_get_flags(env->trap_arg0) & PAGE_VALID
-                            ? TARGET_SEGV_ACCERR : TARGET_SEGV_MAPERR);
-            info._sifields._sigfault._addr = env->trap_arg0;
-            queue_signal(env, info.si_signo, QEMU_SI_FAULT, &info);
-            break;
-        case EXCP_ARITH:
-            info.si_signo = TARGET_SIGFPE;
-            info.si_errno = 0;
-            info.si_code = TARGET_FPE_FLTINV;
-            info._sifields._sigfault._addr = env->pc;
-            queue_signal(env, info.si_signo, QEMU_SI_FAULT, &info);
-            break;
-        case EXCP_INTERRUPT:
-            /* just indicate that signals should be handled asap */
-            break;
-        default:
-            cpu_abort(cs, "UNDO");
-        }
+	        case EXCP_MMFAULT:
+	            info.si_signo = TARGET_SIGSEGV;
+	            info.si_errno = 0;
+	            info.si_code = (page_get_flags(env->trap_arg0) & PAGE_VALID
+	                            ? TARGET_SEGV_ACCERR : TARGET_SEGV_MAPERR);
+	            info._sifields._sigfault._addr = env->trap_arg0;
+	            queue_signal(env, info.si_signo, QEMU_SI_FAULT, &info);
+	            break;
+	        case EXCP_ARITH:
+	            info.si_signo = TARGET_SIGFPE;
+	            info.si_errno = 0;
+	            info.si_code = TARGET_FPE_FLTINV;
+	            info._sifields._sigfault._addr = env->pc;
+	            queue_signal(env, info.si_signo, QEMU_SI_FAULT, &info);
+	            break;
+	        case EXCP_INTERRUPT:
+	            /* just indicate that signals should be handled asap */
+	            break;
+	        default:
+	            cpu_abort(cs, "UNDO");
+	     }
         process_pending_signals (env);
 
         /* Most of the traps imply a transition through HMcode, which
@@ -1424,7 +1424,7 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
     qatomic_set(&prof->search_out_len, prof->search_out_len + search_size);
 #endif
 
-#ifdef DEBUG_DISAS
+#ifdef DEBUG_DISAS //-d out_asm
     if (qemu_loglevel_mask(CPU_LOG_TB_OUT_ASM) &&
         qemu_log_in_addr_range(tb->pc)) {
         FILE *logfile = qemu_log_lock();
@@ -2161,16 +2161,16 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
     tcg_clear_temp_count();
 
     /* Start translating.  */
-    gen_tb_start(db->tb);//OP头两条，注入指令用以检查指令计数和退出条件，创建标签exitreq_label，供gen_tb_end()使用
+    gen_tb_start(db->tb);//IR头两条，注入指令用以检查指令计数和退出条件，创建标签exitreq_label，供gen_tb_end()使用
     ops->tb_start(db, cpu);//该函数sw空，alpha空。arm有，i386没有
     tcg_debug_assert(db->is_jmp == DISAS_NEXT);  /* no early exit */
-//宏函数，展开do { if (!(db->is_jmp == DISAS_NEXT)) { __builtin_unreachable(); } } while(0)
+	//宏函数，展开do { if (!(db->is_jmp == DISAS_NEXT)) { __builtin_unreachable(); } } while(0)
     plugin_enabled = plugin_gen_tb_start(cpu, tb,
                                          tb_cflags(db->tb) & CF_MEMI_ONLY);
 
     while (true) {
-        db->num_insns++;//翻译指令先提前加1
-        ops->insn_start(db, cpu);//INDEX_op_insn_start微操作，OP每一块的前三条。
+        db->num_insns++;//翻译指令计数先提前加1
+        ops->insn_start(db, cpu);//INDEX_op_insn_start中间代码，IR每一块的第一条，隐藏不显示在日志中。
         tcg_debug_assert(db->is_jmp == DISAS_NEXT);  /* no early exit */
 
         if (plugin_enabled) {
@@ -2236,7 +2236,7 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
 
     /* Emit code to exit the TB, as indicated by db->is_jmp.  */
     ops->tb_stop(db, cpu);//
-    gen_tb_end(db->tb, db->num_insns - bp_insn);//OP最后两条
+    gen_tb_end(db->tb, db->num_insns - bp_insn);//IR最后两条
 
     if (plugin_enabled) {
         plugin_gen_tb_end(cpu);
@@ -2246,9 +2246,9 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
     tb->size = db->pc_next - db->pc_first;
     tb->icount = db->num_insns;
 
-#ifdef DEBUG_DISAS
+#ifdef DEBUG_DISAS //-d in_asm
     if (qemu_loglevel_mask(CPU_LOG_TB_IN_ASM)
-        && qemu_log_in_addr_range(db->pc_first)) {//-d in_asm.
+        && qemu_log_in_addr_range(db->pc_first)) {
         FILE *logfile = qemu_log_lock();
         qemu_log("----------------\n");
         ops->disas_log(db, cpu);
@@ -2272,7 +2272,7 @@ static void sw64_tr_init_disas_context(DisasContextBase *dcbase, CPUState *cpu)
     ctx->tbflags = ctx->base.tb->flags;
     ctx->mem_idx = cpu_mmu_index(env, false);
 #ifdef CONFIG_USER_ONLY
-    ctx->ir = cpu_std_ir;//
+    ctx->ir = cpu_std_ir;//虚拟寄存器单元
 #else
     ctx->ir = (ctx->tbflags & ENV_FLAG_HM_MODE ? cpu_hm_ir : cpu_std_ir);
 #endif
@@ -2294,7 +2294,7 @@ static void sw64_tr_translate_insn(DisasContextBase *dcbase, CPUState *cpu)
     insn = cpu_ldl_code(env, ctx->base.pc_next & (~3UL));//取指令
     ctx->env = env;
     ctx->base.pc_next += 4;
-    ctx->base.is_jmp = ctx->translate_one(dcbase, insn, cpu);
+    ctx->base.is_jmp = ctx->translate_one(dcbase, insn, cpu);//翻译
 
     free_context_temps(ctx);
     translator_loop_temp_check(&ctx->base);
@@ -2319,7 +2319,7 @@ uint32_t cpu_ldl_code(CPUArchState *env, abi_ptr ptr)
 
 动态翻译基本思想把一条target指令切分成若干条微操作，每条微操作由一段简单的C代码来实现，运行时通过一个动态代码生成器把这些微操作组合成一个函数，最后执行这个函数。
 
-#### 指令翻译函数translate_one()
+#### 指令翻译translate_one()
 
 > target/sw64/translate.c
 
@@ -2336,18 +2336,31 @@ DisasJumpType translate_one(DisasContextBase *dcbase, uint32_t insn,CPUState *cp
     TCGv_i32 tmp32;
     TCGv_i64 tmp64, tmp64_0, tmp64_1, shift;
     TCGv_i32 tmpa, tmpb, tmpc;//
-    DisasJumpType ret;//跳转类型ret
+    DisasJumpType ret;//反汇编跳转类型
     DisasContext* ctx = container_of(dcbase, DisasContext, base);
 
     opc = extract32(insn, 26, 6);
     ra = extract32(insn, 21, 5);
-    ....
+    rb = extract32(insn, 16, 5);
+    rc = extract32(insn, 0, 5);
+    rd = extract32(insn, 5, 5);
 
     fn3 = extract32(insn, 10, 3);
-    ....
+    fn6 = extract32(insn, 10, 6);
+    fn4 = extract32(insn, 12, 4);
+    fn8 = extract32(insn, 5, 8);
+    fn11 = extract32(insn, 5, 11);
 
     disp5 = extract32(insn, 5, 5);
-    ....
+    disp8 = extract32(insn, 13, 8);
+    disp12 = sextract32(insn, 0, 12);
+    disp13 = sextract32(insn, 13, 13);
+    disp16 = sextract32(insn, 0, 16);
+    disp21 = sextract32(insn, 0, 21);
+    disp26 = sextract32(insn, 0, 26);
+
+    ret = DISAS_NEXT;
+    insn_profile(ctx, insn);
 
     switch (opc) {
     case 0x00:
@@ -2588,7 +2601,9 @@ typedef enum {
 > 
 > linux-user/host/sw_64/safe-syscall.inc.S qemu翻译到系统调用有时会调用这个函数，执行汇编
 
-## 所有中间代码的操作码枚举集合TCGOpcode
+## 结构体、宏、变量
+
+### 所有中间代码的操作码枚举集合TCGOpcode
 
 > include/tcg/tcg.h
 
@@ -2601,7 +2616,7 @@ typedef enum TCGOpcode {//枚举所有TCG操作，赋值0、1、2...
 } TCGOpcode;
 ```
 
-## TCGOp
+### TCGOp
 
 TCG数据结构，定义操作队列节点
 
@@ -2632,7 +2647,7 @@ typedef struct TCGOp {
 } TCGOp;
 ```
 
-## TCGContext
+### TCGContext
 
 ```c
 struct TCGContext {
@@ -2675,7 +2690,7 @@ struct TCGContext {
 }
 ```
 
-## TCGTemp
+### TCGTemp
 
 ```c
 typedef struct TCGTemp {
@@ -2703,7 +2718,7 @@ typedef struct TCGTemp {
 } TCGTemp;
 ```
 
-## TCGOpDef，tcg_op_defs
+### TCGOpDef，tcg_op_defs
 
 > include/tcg/tcg.h
 
@@ -3325,7 +3340,7 @@ int tcg_gen_code(TCGContext *s, TranslationBlock *tb)
     }
 #endif
 
-#ifdef DEBUG_DISAS
+#ifdef DEBUG_DISAS //-d op
     if (unlikely(qemu_loglevel_mask(CPU_LOG_TB_OP)
                  && qemu_log_in_addr_range(tb->pc))) {
         FILE *logfile = qemu_log_lock();
@@ -3391,7 +3406,7 @@ int tcg_gen_code(TCGContext *s, TranslationBlock *tb)
     qatomic_set(&prof->la_time, prof->la_time + profile_getclock());
 #endif
 
-#ifdef DEBUG_DISAS
+#ifdef DEBUG_DISAS //-d op_opt
     if (unlikely(qemu_loglevel_mask(CPU_LOG_TB_OP_OPT)
                  && qemu_log_in_addr_range(tb->pc))) {
         FILE *logfile = qemu_log_lock();
@@ -3431,7 +3446,7 @@ int tcg_gen_code(TCGContext *s, TranslationBlock *tb)
         case INDEX_op_mov_i32:
         case INDEX_op_mov_i64:
         case INDEX_op_mov_vec:
-            tcg_reg_alloc_mov(s, op);
+            tcg_reg_alloc_mov(s, op);//mov翻译函数
             break;
         case INDEX_op_dup_vec:
             tcg_reg_alloc_dup(s, op);
@@ -3475,7 +3490,7 @@ int tcg_gen_code(TCGContext *s, TranslationBlock *tb)
             /* Note: in order to speed up the code, it would be much
                faster to have specialized register allocator functions for
                some common argument patterns */
-            tcg_reg_alloc_op(s, op);//
+            tcg_reg_alloc_op(s, op);//通用翻译函数
             break;
         }
 #ifdef CONFIG_DEBUG_TCG
@@ -3521,6 +3536,105 @@ int tcg_gen_code(TCGContext *s, TranslationBlock *tb)
 #endif
 
     return tcg_current_code_size(s);
+}
+```
+### mov翻译函数tcg_reg_alloc_mov()
+
+> tcg/tcg.c
+
+```c
+static void tcg_reg_alloc_mov(TCGContext *s, const TCGOp *op)
+{
+    const TCGLifeData arg_life = op->life;
+    TCGRegSet allocated_regs, preferred_regs;
+    TCGTemp *ts, *ots;
+    TCGType otype, itype;
+
+    allocated_regs = s->reserved_regs;
+    preferred_regs = op->output_pref[0];
+    ots = arg_temp(op->args[0]);
+    ts = arg_temp(op->args[1]);
+
+    /* ENV should not be modified.  */
+    tcg_debug_assert(!temp_readonly(ots));
+
+    /* Note that otype != itype for no-op truncation.  */
+    otype = ots->type;
+    itype = ts->type;
+
+    if (ts->val_type == TEMP_VAL_CONST) {
+        /* propagate constant or generate sti */
+        tcg_target_ulong val = ts->val;
+        if (IS_DEAD_ARG(1)) {
+            temp_dead(s, ts);
+        }
+        tcg_reg_alloc_do_movi(s, ots, val, arg_life, preferred_regs);
+        return;
+    }
+
+    /* If the source value is in memory we're going to be forced
+       to have it in a register in order to perform the copy.  Copy
+       the SOURCE value into its own register first, that way we
+       don't have to reload SOURCE the next time it is used. */
+    if (ts->val_type == TEMP_VAL_MEM) {
+        temp_load(s, ts, tcg_target_available_regs[itype],
+                  allocated_regs, preferred_regs);
+    }
+
+    tcg_debug_assert(ts->val_type == TEMP_VAL_REG);
+    if (IS_DEAD_ARG(0)) {
+        /* mov to a non-saved dead register makes no sense (even with
+           liveness analysis disabled). */
+        tcg_debug_assert(NEED_SYNC_ARG(0));
+        if (!ots->mem_allocated) {
+            temp_allocate_frame(s, ots);
+        }
+        tcg_out_st(s, otype, ts->reg, ots->mem_base->reg, ots->mem_offset);
+        if (IS_DEAD_ARG(1)) {
+            temp_dead(s, ts);
+        }
+        temp_dead(s, ots);
+    } else {
+        if (IS_DEAD_ARG(1) && ts->kind != TEMP_FIXED) {
+            /* the mov can be suppressed */
+            if (ots->val_type == TEMP_VAL_REG) {
+                s->reg_to_temp[ots->reg] = NULL;
+            }
+            ots->reg = ts->reg;
+            temp_dead(s, ts);
+        } else {
+            if (ots->val_type != TEMP_VAL_REG) {
+                /* When allocating a new register, make sure to not spill the
+                   input one. */
+                tcg_regset_set_reg(allocated_regs, ts->reg);
+                ots->reg = tcg_reg_alloc(s, tcg_target_available_regs[otype],
+                                         allocated_regs, preferred_regs,
+                                         ots->indirect_base);
+            }
+            if (!tcg_out_mov(s, otype, ots->reg, ts->reg)) {
+                /*
+                 * Cross register class move not supported.
+                 * Store the source register into the destination slot
+                 * and leave the destination temp as TEMP_VAL_MEM.
+                 */
+                assert(!temp_readonly(ots));
+                if (!ts->mem_allocated) {
+                    temp_allocate_frame(s, ots);
+                }
+                tcg_out_st(s, ts->type, ts->reg,
+                           ots->mem_base->reg, ots->mem_offset);
+                ots->mem_coherent = 1;
+                temp_free_or_dead(s, ots, -1);
+                return;
+            }
+        }
+        ots->val_type = TEMP_VAL_REG;
+        ots->mem_coherent = 0;
+        s->reg_to_temp[ots->reg] = ots;
+        if (NEED_SYNC_ARG(0)) {
+            temp_sync(s, ots, allocated_regs, 0, 0);
+        }
+    }
 }
 ```
 
@@ -3821,7 +3935,7 @@ bool tcg_op_supported(TCGOpcode op)
 }
 ```
 
-### 为中间代码参数分配寄存器tcg_reg_alloc_op()
+### 通用翻译函数tcg_reg_alloc_op()
 
 > tcg/tcg.c
 
