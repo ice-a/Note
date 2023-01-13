@@ -335,10 +335,10 @@ ClientAliveCountMax 3
 # 6、查看机器信息
 
 ```shell
-/etc/os-release   # 操作系统发行版信息
-/etc/os-version   # 操作系统版本
-/etc/product-info # 产品信息
-/proc/cpuinfo     # CPU信息
+/etc/os-release   # 操作系统发行版
+/etc/os-version   # 操作系统具体版本
+/etc/product-info # 完整版本号
+/proc/cpuinfo     # CPU参数
 arch              # 架构
 uname -a          # 内核版本
 ```

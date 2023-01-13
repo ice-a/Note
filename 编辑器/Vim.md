@@ -22,7 +22,7 @@ https://qa.1r1g.com/sf/ask/1959636591/
 
 使用vi/vim打开文件是会生成.filename.swp文件用于存储缓冲区的内容（修改内容？），情况一：两人同时访问一个文件时会提示存在.filename.swp文件，建议使用可读浏览（enter键），直接编辑可能会出现版本冲突的情况（互相覆盖，会提示文件已经改动）。情况二：非正常退出，如果没有修改过，.filename.swp文件会自动删除，修改过，.filename.swp文件会保留，此时vim打开会提示存在.filename.swp文件，按e键删除（上一次修改不要了），按r键会根据.filename.swp文件恢复该文件，但不会自动删除.filename.swp，需要手动删除或者再打开一次按e键。
 
-vimdiff相关：
+# vimdiff相关：
 
 ```shell
 # 跳转到下一个差异点
@@ -36,7 +36,7 @@ Ctrl-w, w：光标在两个窗口间彼此切换
 
 可以使用 d, p （即 diff put）命令，将当前差异点中的内容覆盖到另一文件中的对应位置。
 如当光标位于左侧文件（file1）中的第一行时，依次按下 d、p 键，则 file1 中的 Line one 被推送  
-
+d,o 将另一文件中的内容覆盖到当前差异点中的对应位置。
 ```
 
 # 自用.vimrc
@@ -89,7 +89,7 @@ set selection=exclusive
 set selectmode=mouse,key
 
 "设置编码格式
-set encoding=utf-8 " 设置 vim 展示文本时的编码格式
+set encoding=utf-8        " 设置 vim 展示文本时的编码格式
 set fileencoding=utf-8    " 设置 vim 写入文件时的编码格式
 "语言设置
 set langmenu=zh_CN.UTF-8
@@ -112,7 +112,6 @@ set hlsearch
 set incsearch
 "搜索到最后匹配的位置后，再次搜索不回到第一个匹配处
 set nowrapscan
-
 
 "在insert模式下能用删除键进行删除
 set backspace=indent,eol,start

@@ -30,3 +30,11 @@ spec2006 429.mcf统计
 call zapnot为何不翻译要调helper函数，x86->sw就后端就有zapnot指令
 
 sw->sw系统调用是抛出异常，调helper函数实现的，x86->sw是通过helper函数实现的。都是helper，位置不同
+
+三、中间代码优化思路
+
+前：ldi，ldih --- 中：add ----后：add
+添加中间码ldi，ldih
+
+前：addw --- 中：add_i64,ext32s_i64
+改成add_i32

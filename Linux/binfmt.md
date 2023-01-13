@@ -1,10 +1,13 @@
 # binfmt介绍
 
+[binfmt.d 中文手册](https://www.wenjiangs.com/doc/systemd-binfmt-d)
+[linux下使用binfmt_misc设定不同二进制的打开程序](https://blog.csdn.net/whatday/article/details/88299482/)
+
 # 配置方法
 
 ## 基于Redhat的发行版
 
-如：kylin系统
+如：centos、kylin系统
 
 ### 配置文件
 
@@ -14,7 +17,7 @@
     register # 注册配置
 ```
 
-### 配置binfmt命令
+### 配置命令
 
 ```shell
 # 注册qemu-x86_64配置
@@ -32,11 +35,13 @@ sudo sh -c 'echo 0 >/proc/sys/fs/binfmt_misc/qemu-x86_64'  # 禁用qemu-x86_64�
 
 ## 基于Debian的发行版
 
-如：UOS系统
+如：ubuntu、Uos系统
 
-### 配置步骤
+方法一：沿用上述配置方法
 
-使用binfmt-support软件（按照qemu中的README文件配置）
+方法二：使用binfmt-support
+
+### binfmt-support配置步骤
 
 1、加载模块
 
@@ -50,11 +55,20 @@ insmod binfmt_misc.ko # 默认模块已加载
 sudo apt-get install binfmt-support # 默认binfmt-support已经安装
 ```
 
-3、注册配置，或者修改配置。配置文件/usr/share/binfmts/qemu-86_64需要从别的地方拷过来，并且修改指定的qemu路径。建议不要乱改，直接用/usr/bin/ 目录下默认安装位置的qemu-xxx。
+3、注册配置，或者修改配置。配置文件需要指定qemu路径。建议不要乱改，直接用/usr/bin/ 目录下默认安装位置的qemu-xxx。
 
 ```shell
-# binfmt 配置相关的目录
+# binfmt 配置文件所在目录
 /usr/share/binfmts/<name>
+
+# 配置文件qemu-x86_64
+package qemu-user-static
+interpreter /home/tianx/qemu6/build/qemu-x86_64
+magic \x7f\x45\x4c\x46\x02\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x3e\x00
+offset 0
+mask \xff\xff\xff\xff\xff\xfe\xfe\xfc\xff\xff\xff\xff\xff\xff\xff\xff\xfe\xff\xff\xff
+credentials yes
+fix_binary yes
 ```
 
 5、更新binfmt

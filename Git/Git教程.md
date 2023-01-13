@@ -176,9 +176,10 @@ $ git commit --amend
 ### 3.6.1 查看历史版本
 
 ```shell
-$ git reflog # 查看版本信息
-$ git log    # 查看版本详细信息
-$ git log -p 文件名  # 查看文件的历史修改
+$ git reflog        # 查看版本信息
+$ git log           # 查看版本详细信息
+$ git log  文件名    # 查看文件的历史修改版本
+$ git log -p 文件名  # 查看文件的历史修改详细信息
 ```
 
 ### 3.6.2 版本穿梭
@@ -222,7 +223,7 @@ $ git branch -v
 ```shell
 fy@DESKTOP-06PPN7S MINGW64 /d/Git-Space/git-demo (master)
 $ git branch -v
-* master 087a1a7 my third commit    # *代表当前所在的分区
+* master 087a1a7 my third commit    # *代表当前所在的分支
 ```
 
 ### 4.3.2 创建分支

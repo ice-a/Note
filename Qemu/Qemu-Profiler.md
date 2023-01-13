@@ -121,4 +121,4 @@ The Annotated Source Listing
 
 `./qemu-x86_64 -plugin contrib/plugin/libhotblocks.so -d plugin ./hello`
 
-![](Pasted%20image%2020221222112412.png)
+![](./Qemu-Profiler.assets/Pasted%20image%2020221222112412.png)

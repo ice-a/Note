@@ -43,28 +43,6 @@ TCG后端的主要功能是把中间代码（TCG Operations）转化成Host Code
 tcg_reg_alloc_op():tcg_reg_alloc_op()中根据输入参数、输出参数的有效性进行寄存器分配，之后调用tcg_out_op()进行tcg-target代码的转换。
 tcg_out_op()主要功能就是依据TCG操作码，调用对应的转换函数将操作转换成host机器码。
 
-> 问题一：
-> 
-> cpu_tb_exec()->tcg_qemu_tb_exec 进不去，找不到定义
-> 
-> 问题二：
-> 
-> tb_lookup()这个函数sourceinsight找不到啊
-
-- [ ] 问题一：
-  
-  cpu_tb_exec()->tcg_qemu_tb_exec 进不去，找不到定义，函数指针
-  
-  问题二：
-  
-  tb_lookup()这个函数sourceinsight找不到啊，很多函数都不好找
-  
-  问题三：
-  
-  i386的translator_loop在accel/tcg/translator.c
-  
-  gen_intermediate_code,i386_tr_translate_insn在target/i386/tcg/translate.c
-
 # 源码分析 Qemu Version 6.0
 
 用户模式user mode
@@ -75,11 +53,11 @@ linux-user/sw64/cpu_loop.c: cpu_loop()->
 
 accel/tcg/cpu-exec.c：cpu_exec()
 
- ![](qemu源码分析.assets/2022-07-14-10-30-30-image.png)
+ ![](./Qemu源码分析.assets/qemu流程.png)
 
 # 1.设备创建
 
-### type_init
+## type_init
 
 > include/qemu/module.h:type_init,module_init 构造函数，用于构造对象
 
@@ -559,7 +537,7 @@ static void core3_init(Object *obj)
 }
 ```
 
-### sw64_translate_init()
+### 在TCGContext中分配变量表示前端物理寄存器sw64_translate_init()
 
 函数调用关系
 
@@ -624,7 +602,7 @@ void sw64_translate_init(void)
 {}
 ```
 
-> target/sw64/translate.c:初始化TCGContext成员temp
+> target/sw64/translate.c
 
 ```c
 void sw64_translate_init(void)
@@ -708,13 +686,9 @@ cpu_env 表示tcg_ctx->temps[0]相对于tcg_ctx的offset，tcg_ctx->temps[0].reg
 
 TCG_AREG0是架构相关的临时寄存器，在host执行tcg_qemu_tb_exec时使用TCG_AREG0 来访问翻译模式下的env。（aarch64: TCG_AREG0 =TCG_REG_X19,sw_64:TCG_AREG0=TCG_REG_X9）
 
-tcg_init_ctx.temps[0]
+tcg_init_ctx.temps[0]在执行模式中用来指向env(CPUX86State)
 
-在执行模式中用来指向env(CPUX86State)
-
-temps[1].mem_base指向temps[0]，
-
-也就是CPUX86State,
+temps[1].mem_base指向temps[0]，也就是CPUX86State,
 
 temps[1].mem_offset表示cc_op在CPUX86State的偏移
 
@@ -965,58 +939,58 @@ void cpu_loop(CPUSW64State *env)
         cpu_exec_end(cs);//设置退出翻译执行时的相关参数
         process_queued_cpu_work(cs);//多线程状态下，处理翻译执行过程中其他线程插入的任务
         switch (trapnr) {//处理系统调用产生的异常
-	        case EXCP_OPCDEC://非法的操作码
-	            cpu_abort(cs, "ILLEGAL SW64 insn at line %d!", __LINE__);
-	        case EXCP_CALL_SYS://正常处理
-		        switch (env->error_code) {
-		            case 0x83://代表系统调用
-		                /* CALLSYS */
-		                trapnr = env->ir[IDX_V0];//trapnr系统调用号
-		                sysret = do_syscall(env, trapnr,
+            case EXCP_OPCDEC://非法的操作码
+                cpu_abort(cs, "ILLEGAL SW64 insn at line %d!", __LINE__);
+            case EXCP_CALL_SYS://正常处理
+                switch (env->error_code) {
+                    case 0x83://代表系统调用
+                        /* CALLSYS */
+                        trapnr = env->ir[IDX_V0];//trapnr系统调用号
+                        sysret = do_syscall(env, trapnr,
                                     env->ir[IDX_A0], env->ir[IDX_A1],
                                     env->ir[IDX_A2], env->ir[IDX_A3],
                                     env->ir[IDX_A4], env->ir[IDX_A5],
                                     0, 0);
-		                if (sysret == -TARGET_ERESTARTSYS) {
-		                    env->pc -= 4;
-		                    break;
-		                }
-		                if (sysret == -TARGET_QEMU_ESIGRETURN) {
-		                    break;
-		                }
-		                /* Syscall writes 0 to V0 to bypass error check, similar
-		                   to how this is handled internal to Linux kernel.
-		                   (Ab)use trapnr temporarily as boolean indicating error. */
-		                trapnr = (env->ir[IDX_V0] != 0 && sysret < 0);//异常trapnr=1否则为0
-		                env->ir[IDX_V0] = (trapnr ? -sysret : sysret);//异常返回负值，否则正常返回，r0
-		                env->ir[IDX_A3] = trapnr;//r19
-		                break;
-		            default:
-		                printf("UNDO sys_call %lx\n", env->error_code);
-		                exit(-1);
-	            }
+                        if (sysret == -TARGET_ERESTARTSYS) {
+                            env->pc -= 4;
+                            break;
+                        }
+                        if (sysret == -TARGET_QEMU_ESIGRETURN) {
+                            break;
+                        }
+                        /* Syscall writes 0 to V0 to bypass error check, similar
+                           to how this is handled internal to Linux kernel.
+                           (Ab)use trapnr temporarily as boolean indicating error. */
+                        trapnr = (env->ir[IDX_V0] != 0 && sysret < 0);//异常trapnr=1否则为0
+                        env->ir[IDX_V0] = (trapnr ? -sysret : sysret);//异常返回负值，否则正常返回，r0
+                        env->ir[IDX_A3] = trapnr;//r19
+                        break;
+                    default:
+                        printf("UNDO sys_call %lx\n", env->error_code);
+                        exit(-1);
+                }
             break;
-	        case EXCP_MMFAULT:
-	            info.si_signo = TARGET_SIGSEGV;
-	            info.si_errno = 0;
-	            info.si_code = (page_get_flags(env->trap_arg0) & PAGE_VALID
-	                            ? TARGET_SEGV_ACCERR : TARGET_SEGV_MAPERR);
-	            info._sifields._sigfault._addr = env->trap_arg0;
-	            queue_signal(env, info.si_signo, QEMU_SI_FAULT, &info);
-	            break;
-	        case EXCP_ARITH:
-	            info.si_signo = TARGET_SIGFPE;
-	            info.si_errno = 0;
-	            info.si_code = TARGET_FPE_FLTINV;
-	            info._sifields._sigfault._addr = env->pc;
-	            queue_signal(env, info.si_signo, QEMU_SI_FAULT, &info);
-	            break;
-	        case EXCP_INTERRUPT:
-	            /* just indicate that signals should be handled asap */
-	            break;
-	        default:
-	            cpu_abort(cs, "UNDO");
-	     }
+            case EXCP_MMFAULT:
+                info.si_signo = TARGET_SIGSEGV;
+                info.si_errno = 0;
+                info.si_code = (page_get_flags(env->trap_arg0) & PAGE_VALID
+                                ? TARGET_SEGV_ACCERR : TARGET_SEGV_MAPERR);
+                info._sifields._sigfault._addr = env->trap_arg0;
+                queue_signal(env, info.si_signo, QEMU_SI_FAULT, &info);
+                break;
+            case EXCP_ARITH:
+                info.si_signo = TARGET_SIGFPE;
+                info.si_errno = 0;
+                info.si_code = TARGET_FPE_FLTINV;
+                info._sifields._sigfault._addr = env->pc;
+                queue_signal(env, info.si_signo, QEMU_SI_FAULT, &info);
+                break;
+            case EXCP_INTERRUPT:
+                /* just indicate that signals should be handled asap */
+                break;
+            default:
+                cpu_abort(cs, "UNDO");
+         }
         process_pending_signals (env);
 
         /* Most of the traps imply a transition through HMcode, which
@@ -1045,8 +1019,7 @@ TCG 翻译过程中以Translation Block (TB)为单位, 它对应一组target指�
 
 ```c
 struct TranslationBlock {
-    ////对应该TB块的模拟PC值,target、elf PC？
-    target_ulong pc;   /* simulated PC corresponding to this block (EIP + CS base) */ 
+    target_ulong pc;   /* simulated PC corresponding to this block (EIP + CS base) */ //对应该TB块的模拟PC值,target、elf PC？
     target_ulong cs_base; /* CS base for this block */
     uint32_t flags; /* flags defining in which context the code was generated */
     uint32_t cflags;    /* compile flags */
@@ -1056,7 +1029,7 @@ struct TranslationBlock {
 #define CF_USE_ICOUNT  0x00020000
 #define CF_INVALID     0x00040000 /* TB is stale. Set with @jmp_lock held */ //TB已过时，保持@jmp_lock时设置
 #define CF_PARALLEL    0x00080000 /* Generate code for a parallel context */ //为并行上下文生成代码
-#define CF_CLUSTER_MASK 0xff000000 /* Top 8 bits are cluster ID */ //前8位是群集ID
+#define CF_CLUSTER_MASK 0xff000000 /* Top 8 bits are cluster ID */ //高8位是群集ID
 #define CF_CLUSTER_SHIFT 24
 
     /* Per-vCPU dynamic tracing state used to generate this TB */
@@ -2164,7 +2137,7 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
     gen_tb_start(db->tb);//IR头两条，注入指令用以检查指令计数和退出条件，创建标签exitreq_label，供gen_tb_end()使用
     ops->tb_start(db, cpu);//该函数sw空，alpha空。arm有，i386没有
     tcg_debug_assert(db->is_jmp == DISAS_NEXT);  /* no early exit */
-	//宏函数，展开do { if (!(db->is_jmp == DISAS_NEXT)) { __builtin_unreachable(); } } while(0)
+    //宏函数，展开do { if (!(db->is_jmp == DISAS_NEXT)) { __builtin_unreachable(); } } while(0)
     plugin_enabled = plugin_gen_tb_start(cpu, tb,
                                          tb_cflags(db->tb) & CF_MEMI_ONLY);
 
@@ -2277,6 +2250,66 @@ static void sw64_tr_init_disas_context(DisasContextBase *dcbase, CPUState *cpu)
     ctx->ir = (ctx->tbflags & ENV_FLAG_HM_MODE ? cpu_hm_ir : cpu_std_ir);
 #endif
     ctx->zero = NULL;
+}
+```
+
+### gen_tb_start()
+
+```c
+static inline void gen_tb_start(const TranslationBlock *tb)
+{
+    TCGv_i32 count;
+
+    tcg_ctx->exitreq_label = gen_new_label();
+    if (tb_cflags(tb) & CF_USE_ICOUNT) {
+        count = tcg_temp_local_new_i32();
+    } else {
+        count = tcg_temp_new_i32();
+    }
+
+    tcg_gen_ld_i32(count, cpu_env,
+                   offsetof(ArchCPU, neg.icount_decr.u32) -
+                   offsetof(ArchCPU, env));
+
+    if (tb_cflags(tb) & CF_USE_ICOUNT) {
+        /*
+         * We emit a sub with a dummy immediate argument. Keep the insn index
+         * of the sub so that we later (when we know the actual insn count)
+         * can update the argument with the actual insn count.
+         */
+        tcg_gen_sub_i32(count, count, tcg_constant_i32(0));
+        icount_start_insn = tcg_last_op();
+    }
+
+    tcg_gen_brcondi_i32(TCG_COND_LT, count, 0, tcg_ctx->exitreq_label);
+
+    if (tb_cflags(tb) & CF_USE_ICOUNT) {
+        tcg_gen_st16_i32(count, cpu_env,
+                         offsetof(ArchCPU, neg.icount_decr.u16.low) -
+                         offsetof(ArchCPU, env));
+        gen_io_end();
+    }
+
+    tcg_temp_free_i32(count);
+}
+```
+
+### gen_tb_end()
+
+```c
+static inline void gen_tb_end(const TranslationBlock *tb, int num_insns)
+{
+    if (tb_cflags(tb) & CF_USE_ICOUNT) {
+        /*
+         * Update the num_insn immediate parameter now that we know
+         * the actual insn count.
+         */
+        tcg_set_insn_param(icount_start_insn, 2,
+                           tcgv_i32_arg(tcg_constant_i32(num_insns)));
+    }
+
+    gen_set_label(tcg_ctx->exitreq_label);
+    tcg_gen_exit_tb(tb, TB_EXIT_REQUESTED);
 }
 ```
 
@@ -2501,6 +2534,14 @@ include/tcg/tcg-op.h
 
 ## 系统调用指令
 
+### 系统调用相关
+
+> /usr/include/asm/unistd.h：sw系统调用号表
+> 
+> linux-user/syscall.c：qemu处理系统调用相关
+> 
+> linux-user/host/sw_64/safe-syscall.inc.S qemu翻译到系统调用有时会调用这个函数，执行汇编
+
 ```c
     switch (opc) {
     case 0x00://系统调用指令
@@ -2549,70 +2590,23 @@ do_sys_call:
 
 # 4.TCG
 
-## 参考资料
-
-### TCG中间代码参考
+## TCG中间代码参考
 
 > tcg/README
 
-### SW整数寄存器及别名
-
-> /usr/include/sw_64/regdef.h
-
-### SW寄存器在TCG中的表示
-
-> tcg/sw_64/tcg-target.h
-
-```c
-typedef enum {
-    TCG_REG_X0, TCG_REG_X1, TCG_REG_X2, TCG_REG_X3,
-    TCG_REG_X4, TCG_REG_X5, TCG_REG_X6, TCG_REG_X7,
-    TCG_REG_X8, TCG_REG_X9, TCG_REG_X10, TCG_REG_X11,
-    TCG_REG_X12, TCG_REG_X13, TCG_REG_X14, TCG_REG_X15,
-    TCG_REG_X16, TCG_REG_X17, TCG_REG_X18, TCG_REG_X19,
-    TCG_REG_X20, TCG_REG_X21, TCG_REG_X22, TCG_REG_X23,
-    TCG_REG_X24, TCG_REG_X25, TCG_REG_X26, TCG_REG_X27,
-    TCG_REG_X28, TCG_REG_X29, TCG_REG_X30, TCG_REG_X31, 
-//32个整型
-    TCG_REG_F0=32, TCG_REG_F1, TCG_REG_F2, TCG_REG_F3,
-    TCG_REG_F4, TCG_REG_F5, TCG_REG_F6, TCG_REG_F7,
-    TCG_REG_F8, TCG_REG_F9, TCG_REG_F10, TCG_REG_F11,
-    TCG_REG_F12, TCG_REG_F13, TCG_REG_F14, TCG_REG_F15,
-    TCG_REG_F16, TCG_REG_F17, TCG_REG_F18, TCG_REG_F19,
-    TCG_REG_F20, TCG_REG_F21, TCG_REG_F22, TCG_REG_F23,
-    TCG_REG_F24, TCG_REG_F25, TCG_REG_F26, TCG_REG_F27,
-    TCG_REG_F28, TCG_REG_F29, TCG_REG_F30, TCG_REG_F31,
-//32个浮点
-    /* Aliases.  */
-    TCG_REG_FP = TCG_REG_X15,//特殊的
-    TCG_REG_RA = TCG_REG_X26,
-    TCG_REG_GP = TCG_REG_X29,
-    TCG_REG_SP = TCG_REG_X30,
-    TCG_REG_ZERO = TCG_REG_X31,
-    TCG_AREG0  = TCG_REG_X9,
-} TCGReg;
-```
-
-### 系统调用
-
-> /usr/include/asm/unistd.h：sw系统调用号表
-> 
-> linux-user/syscall.c：qemu处理系统相关
-> 
-> linux-user/host/sw_64/safe-syscall.inc.S qemu翻译到系统调用有时会调用这个函数，执行汇编
-
 ## 结构体、宏、变量
 
-### 所有中间代码的操作码枚举集合TCGOpcode
+### 所有中间码的操作码枚举TCGOpcode
 
 > include/tcg/tcg.h
 
 ```c
-typedef enum TCGOpcode {//枚举所有TCG操作，赋值0、1、2...
-#define DEF(name, oargs, iargs, cargs, flags) INDEX_op_ ## name,//宏函数定义成名字，把每一个TCG操作对应到操作码
-#include "tcg/tcg-opc.h"  //所有中间代码定义
+typedef enum TCGOpcode {//枚举所有TCG操作码，赋值0、1、2...
+#define DEF(name, oargs, iargs, cargs, flags) INDEX_op_ ## name,//把中间码的宏定义与其操作码关联起来
+//名称，输出参数个数，输入参数个数，常量参数个数，特殊标志
+#include "tcg/tcg-opc.h"  //包含所有中间码定义
 #undef DEF
-    NB_OPS,//枚举，最后一个，数值表示中间码数量。
+    NB_OPS,//枚举的最后一个，数值表示中间码数量。
 } TCGOpcode;
 ```
 
@@ -2624,26 +2618,26 @@ TCG数据结构，定义操作队列节点
 
 ```c
 typedef struct TCGOp {
-    TCGOpcode opc   : 8;        /*  8 */
+    TCGOpcode opc   : 8;        /*  8 */   //操作码
 
     /* Parameters for this opcode.  See below.  */
     unsigned param1 : 4;        /* 12 */
     unsigned param2 : 4;        /* 16 */
 
-    /* Lifetime data of the operands.  */
-    unsigned life   : 16;       /* 32 */
+    /* Lifetime data of the operands.  */ //生命周期
+    unsigned life   : 16;       /* 32 */ 
 
     /* Next and previous opcodes.  */
-    QTAILQ_ENTRY(TCGOp) link;
+    QTAILQ_ENTRY(TCGOp) link;//中间操作码实体
 #ifdef CONFIG_PLUGIN
     QSIMPLEQ_ENTRY(TCGOp) plugin_link;
 #endif
 
     /* Arguments for the opcode.  */
-    TCGArg args[MAX_OPC_PARAM];//TCG操作码的参数
+    TCGArg args[MAX_OPC_PARAM];//中间码的参数
 
     /* Register preferences for the output(s).  */
-    TCGRegSet output_pref[2];
+    TCGRegSet output_pref[2];//输出参数的寄存器偏好
 } TCGOp;
 ```
 
@@ -2656,7 +2650,7 @@ struct TCGContext {
     TCGPool *pool_first, *pool_current, *pool_first_large;
     int nb_labels;//labels个数
     int nb_globals;//全局变量的个数
-    int nb_temps;//临时变量的个数
+    int nb_temps;//变量的总个数
     int nb_indirects;
     int nb_ops;//Mico-op个数    
 
@@ -2690,40 +2684,143 @@ struct TCGContext {
 }
 ```
 
-### TCGTemp
+### 临时变量TCGTemp
 
 ```c
 typedef struct TCGTemp {
-    TCGReg reg:8;//tcg中的寄存器编号，
-    TCGTempVal val_type:8;
-    TCGType base_type:8;
-    TCGType type:8;
-    TCGTempKind kind:3;
+    TCGReg reg:8;//分配的寄存器编号
+    TCGTempVal val_type:8;//值类型
+    TCGType base_type:8;//类型，TCG_TYPE_I32、TCG_TYPE_I64等
+    TCGType type:8;//类型，TCG_TYPE_I32、TCG_TYPE_I64等
+    TCGTempKind kind:3;//种类，global、fixed等
     unsigned int indirect_reg:1;
     unsigned int indirect_base:1;
     unsigned int mem_coherent:1;
     unsigned int mem_allocated:1;
     unsigned int temp_allocated:1;
 
-    int64_t val;
-    struct TCGTemp *mem_base;//=tcg_init_ctx.temp[0];基地址
-    intptr_t mem_offset;//=offsetof(CPUSW64State,xx);偏移量
-    const char *name;//=xx，名称
+    int64_t val;//值
+    struct TCGTemp *mem_base;//基地址，即tcg_init_ctx.temp[0]
+    intptr_t mem_offset;//偏移量，即offsetof(CPUSW64State,xx)
+    const char *name;//名称
 
     /* Pass-specific information that can be stored for a temporary.
        One word worth of integer data, and one pointer to data
        allocated separately.  */
-    uintptr_t state;
+    uintptr_t state;//状态，如dead
     void *state_ptr;
 } TCGTemp;
 ```
 
-### TCGOpDef，tcg_op_defs
+#### target物理寄存器在TCG中的表示TCGReg
+
+> tcg/sw_64/tcg-target.h
+
+```c
+typedef enum {//32个整型寄存器
+    TCG_REG_X0, TCG_REG_X1, TCG_REG_X2, TCG_REG_X3,
+    TCG_REG_X4, TCG_REG_X5, TCG_REG_X6, TCG_REG_X7,
+    TCG_REG_X8, TCG_REG_X9, TCG_REG_X10, TCG_REG_X11,
+    TCG_REG_X12, TCG_REG_X13, TCG_REG_X14, TCG_REG_X15,
+    TCG_REG_X16, TCG_REG_X17, TCG_REG_X18, TCG_REG_X19,
+    TCG_REG_X20, TCG_REG_X21, TCG_REG_X22, TCG_REG_X23,
+    TCG_REG_X24, TCG_REG_X25, TCG_REG_X26, TCG_REG_X27,
+    TCG_REG_X28, TCG_REG_X29, TCG_REG_X30, TCG_REG_X31, 
+//32个浮点寄存器
+    TCG_REG_F0=32, TCG_REG_F1, TCG_REG_F2, TCG_REG_F3,
+    TCG_REG_F4, TCG_REG_F5, TCG_REG_F6, TCG_REG_F7,
+    TCG_REG_F8, TCG_REG_F9, TCG_REG_F10, TCG_REG_F11,
+    TCG_REG_F12, TCG_REG_F13, TCG_REG_F14, TCG_REG_F15,
+    TCG_REG_F16, TCG_REG_F17, TCG_REG_F18, TCG_REG_F19,
+    TCG_REG_F20, TCG_REG_F21, TCG_REG_F22, TCG_REG_F23,
+    TCG_REG_F24, TCG_REG_F25, TCG_REG_F26, TCG_REG_F27,
+    TCG_REG_F28, TCG_REG_F29, TCG_REG_F30, TCG_REG_F31,
+
+    /* Aliases.  */
+    TCG_REG_FP = TCG_REG_X15,//特殊的
+    TCG_REG_RA = TCG_REG_X26,
+    TCG_REG_GP = TCG_REG_X29,
+    TCG_REG_SP = TCG_REG_X30,
+    TCG_REG_ZERO = TCG_REG_X31,
+    TCG_AREG0  = TCG_REG_X9,
+} TCGReg;
+```
+
+#### 变量的值类型TCGTempVal
+
+```c
+typedef enum TCGTempVal {
+    TEMP_VAL_DEAD,
+    TEMP_VAL_REG,//值是寄存器
+    TEMP_VAL_MEM,//值在内存中
+    TEMP_VAL_CONST,//值是常量
+} TCGTempVal;
+```
+
+#### 变量类型TCGType
+
+```c
+typedef enum TCGType {
+    TCG_TYPE_I32,
+    TCG_TYPE_I64,
+
+    TCG_TYPE_V64,
+    TCG_TYPE_V128,
+    TCG_TYPE_V256,
+
+    TCG_TYPE_COUNT, /* number of different types */
+
+    /* An alias for the size of the host register.  */
+#if TCG_TARGET_REG_BITS == 32
+    TCG_TYPE_REG = TCG_TYPE_I32,
+#else
+    TCG_TYPE_REG = TCG_TYPE_I64,
+#endif
+
+    /* An alias for the size of the native pointer.  */
+#if UINTPTR_MAX == UINT32_MAX
+    TCG_TYPE_PTR = TCG_TYPE_I32,
+#else
+    TCG_TYPE_PTR = TCG_TYPE_I64,
+#endif
+
+    /* An alias for the size of the target "long", aka register.  */
+#if TARGET_LONG_BITS == 64
+    TCG_TYPE_TL = TCG_TYPE_I64,
+#else
+    TCG_TYPE_TL = TCG_TYPE_I32,
+#endif
+} TCGType;
+```
+
+#### 变量生命周期TCGTempKind
+
+```c
+typedef enum TCGTempKind {
+    /* Temp is dead at the end of all basic blocks. */
+    // 临时变量在基本块结束时dead
+    TEMP_NORMAL,
+    /* Temp is saved across basic blocks but dead at the end of TBs. */
+    //本地临时变量在翻译块结束时dead
+    TEMP_LOCAL,
+    /* Temp is saved across both basic blocks and translation blocks. */
+    //全局变量保存在基本块和翻译块中
+    TEMP_GLOBAL,
+    /* Temp is in a fixed register. */
+    //固定变量在一个固定寄存器中
+    TEMP_FIXED,
+    /* Temp is a fixed constant. */
+    //常量是一个固定的常量
+    TEMP_CONST,
+} TCGTempKind;
+```
+
+### 操作定义TCGOpDef，tcg_op_defs
 
 > include/tcg/tcg.h
 
 ```c
-typedef struct TCGOpDef {//TCG操作的相关信息
+typedef struct TCGOpDef {
     const char *name;//操作码
     uint8_t nb_oargs, nb_iargs, nb_cargs, nb_args;//输出，输入，常量、参数个数
     uint8_t flags;
@@ -2741,7 +2838,7 @@ typedef struct TCGArgConstraint {
 typedef struct TCGTargetOpDef {
     TCGOpcode op;
     const char *args_ct_str[TCG_MAX_OP_ARGS];
-} TCGTargetOpD
+} TCGTargetOpDef
 ```
 
 > tcg/tcg-common.c:全局变量tcg_op_defs
@@ -2803,9 +2900,9 @@ void tcg_exec_init(unsigned long tb_size, int splitwx)
 }
 ```
 
-#### 分配缓存alloc_code_gen_buffer()
+#### code_gen_buffer分配alloc_code_gen_buffer()
 
-> accel/tcg/translate-all.c:code_gen_buffer如何分配空间
+> accel/tcg/translate-all.c
 
 ```c
 #if TCG_TARGET_REG_BITS == 32  
@@ -2867,6 +2964,8 @@ static bool alloc_code_gen_buffer_anon(size_t size, int prot,
 
 这片内存可以采用静态分配方式，也可以采用动态分配方式，前者将code_gen_buffer指向静态分配的空间，后者将code_gen_buffer指向动态分配的空间。编译时由宏USE_STATIC_CODE_GEN_BUFFER控制选用那种方式。
 
+#### TCGContext初始化tcg_context_init()
+
 > accel/tcg/translate-all.c
 
 ```c
@@ -2876,7 +2975,7 @@ static void cpu_gen_init(void)
 }
 ```
 
-> tcg/tcg.c:tcg_context_init初始化TCGContext
+> tcg/tcg.c
 
 ```c
 void tcg_context_init(TCGContext *s)
@@ -2916,7 +3015,7 @@ void tcg_context_init(TCGContext *s)
                             (gpointer)&all_helpers[i]);
     }
 
-    tcg_target_init(s);//初始化target寄存器相关信息 tcg/sw_64/tcg-target.c.inc
+    tcg_target_init(s);//初始化host(tcg-target)可用寄存器 tcg/sw_64/tcg-target.c.inc
     process_op_defs(s);//给tcg_op_defs[]->args_ct赋初值
 
     /* Reverse the order of the saved registers, assuming they're all at
@@ -2953,12 +3052,65 @@ void tcg_context_init(TCGContext *s)
 #endif
 
     tcg_debug_assert(!tcg_regset_test_reg(s->reserved_regs, TCG_AREG0));
-    ts = tcg_global_reg_new_internal(s, TCG_TYPE_PTR, TCG_AREG0, "env");//保存一个全局变量env
-    cpu_env = temp_tcgv_ptr(ts);//初始化cpu_env
+    ts = tcg_global_reg_new_internal(s, TCG_TYPE_PTR, TCG_AREG0, "env");//在s中分配一个全局变量temp--env
+    cpu_env = temp_tcgv_ptr(ts);//将temp类型转换为tcgv类型
 }
 ```
 
-### process_op_def()
+##### tcg_target_init()
+```c
+static void tcg_target_init(TCGContext *s)
+{
+    tcg_target_available_regs[TCG_TYPE_I32] = 0xffffffffu;
+    tcg_target_available_regs[TCG_TYPE_I64] = 0xffffffffu;
+    tcg_target_available_regs[TCG_TYPE_V64] = 0xffffffff00000000ull;
+    tcg_target_available_regs[TCG_TYPE_V128] = 0xffffffff00000000ull;
+    tcg_target_call_clobber_regs = -1ull;
+    
+    //sw_64 callee saved x9-x15
+    tcg_regset_reset_reg(tcg_target_call_clobber_regs, TCG_REG_X9);
+    tcg_regset_reset_reg(tcg_target_call_clobber_regs, TCG_REG_X10);
+    tcg_regset_reset_reg(tcg_target_call_clobber_regs, TCG_REG_X11);
+    tcg_regset_reset_reg(tcg_target_call_clobber_regs, TCG_REG_X12);
+    tcg_regset_reset_reg(tcg_target_call_clobber_regs, TCG_REG_X13);
+    tcg_regset_reset_reg(tcg_target_call_clobber_regs, TCG_REG_X14);
+    tcg_regset_reset_reg(tcg_target_call_clobber_regs, TCG_REG_X15);
+    
+    //sw_64 callee saved f2~f9
+    tcg_regset_reset_reg(tcg_target_call_clobber_regs, TCG_REG_F2);
+    tcg_regset_reset_reg(tcg_target_call_clobber_regs, TCG_REG_F3);
+    tcg_regset_reset_reg(tcg_target_call_clobber_regs, TCG_REG_F4);
+    tcg_regset_reset_reg(tcg_target_call_clobber_regs, TCG_REG_F5);
+    tcg_regset_reset_reg(tcg_target_call_clobber_regs, TCG_REG_F6);
+    tcg_regset_reset_reg(tcg_target_call_clobber_regs, TCG_REG_F7);
+    tcg_regset_reset_reg(tcg_target_call_clobber_regs, TCG_REG_F8);
+    tcg_regset_reset_reg(tcg_target_call_clobber_regs, TCG_REG_F9);
+
+    s->reserved_regs = 0;
+    tcg_regset_set_reg(s->reserved_regs, TCG_REG_SP);
+    tcg_regset_set_reg(s->reserved_regs, TCG_REG_FP);
+    tcg_regset_set_reg(s->reserved_regs, TCG_REG_TMP); //TCG_REG_X27
+    tcg_regset_set_reg(s->reserved_regs, TCG_REG_TMP2); //TCG_REG_X25	
+    tcg_regset_set_reg(s->reserved_regs, TCG_REG_TMP3); //TCG_REG_X24	
+    tcg_regset_set_reg(s->reserved_regs, TCG_REG_RA); //TCG_REG_X26
+    tcg_regset_set_reg(s->reserved_regs, TCG_REG_X29); /*sw_64 platform register */
+    tcg_regset_set_reg(s->reserved_regs, TCG_FLOAT_TMP); /*sw_64 platform register */
+    tcg_regset_set_reg(s->reserved_regs, TCG_FLOAT_TMP2); /*sw_64 platform register */
+}
+static TCGRegSet tcg_target_available_regs[TCG_TYPE_COUNT];
+static TCGRegSet tcg_target_call_clobber_regs;
+#define tcg_regset_set_reg(d, r)   ((d) |= (TCGRegSet)1 << (r))
+#define tcg_regset_reset_reg(d, r) ((d) &= ~((TCGRegSet)1 << (r)))
+#define tcg_regset_test_reg(d, r)  (((d) >> (r)) & 1)
+```
+tcg_target_available_regs: 不同类型指令中可用的寄存器 bitmap
+tcg_target_call_clobber_regs: 在函数调用过程中 caller 需要保存的寄存器
+tcg_target_callee_save_regs: 在函数调用过程中 callee 需要保存的寄存器
+tcg_target_call_iarg_regs: 在函数调用过程中寄存器传参的寄存器列表
+tcg_target_call_oarg_regs：在函数调用过程中返回值寄存器列表
+s->reserved_regs：在翻译 IR -> host 指令过程中不会使用的寄存器列表，类似于SP， TP， ZERO 和一些其他 reserved 的寄存器
+
+##### process_op_def()
 
 ```c
 static void process_op_defs(TCGContext *s)
@@ -3049,7 +3201,7 @@ static void process_op_defs(TCGContext *s)
 }
 ```
 
-#### 中间代码初始化tcg_target_op_def()
+###### 根据host机器给中间代码的约束集合赋值tcg_target_op_def()
 
 > tcg/sw_64/tcg-target.c.inc
 
@@ -3243,6 +3395,87 @@ static TCGConstraintSetIndex tcg_target_op_def(TCGOpcode op)
     default:
         g_assert_not_reached();
     }
+}
+```
+##### tcg_global_reg_new_internal
+```c
+static TCGTemp *tcg_global_reg_new_internal(TCGContext *s, TCGType type,
+                                            TCGReg reg, const char *name)
+{
+    TCGTemp *ts;
+     
+    if (TCG_TARGET_REG_BITS == 32 && type != TCG_TYPE_I32) {
+        tcg_abort();
+    }
+     
+    ts = tcg_global_alloc(s);//为全局变量分配空间
+    ts->base_type = type;
+    ts->type = type;
+    ts->kind = TEMP_FIXED;
+    ts->reg = reg;
+    ts->name = name;
+    tcg_regset_set_reg(s->reserved_regs, reg);
+	//1左移reg位再与s->reserved_regs位或。最后是一个64位数，第几位代表第几个寄存器，1表示分配了，0表示没有分配。
+    return ts;
+}
+#define tcg_regset_set_reg(d, r)   ((d) |= (TCGRegSet)1 << (r))
+#define tcg_regset_reset_reg(d, r) ((d) &= ~((TCGRegSet)1 << (r)))
+#define tcg_regset_test_reg(d, r)  (((d) >> (r)) & 1)
+```
+######  tcg_global_alloc()
+```c
+static TCGTemp *tcg_global_alloc(TCGContext *s)
+{
+    TCGTemp *ts;
+
+    tcg_debug_assert(s->nb_globals == s->nb_temps);
+    tcg_debug_assert(s->nb_globals < TCG_MAX_TEMPS);
+    s->nb_globals++;
+    ts = tcg_temp_alloc(s);//为temp分配空间
+    ts->kind = TEMP_GLOBAL;
+
+    return ts;
+}
+
+```
+tcg_temp_alloc()
+```c
+static TCGTemp *tcg_temp_alloc(TCGContext *s)
+{
+    int n = s->nb_temps++;
+
+    if (n >= TCG_MAX_TEMPS) {
+        tcg_raise_tb_overflow(s);
+    }
+    return memset(&s->temps[n], 0, sizeof(TCGTemp));//申请空间
+}
+```
+
+###### temp_tcgv_ptr()
+
+```c
+static inline TCGv_ptr temp_tcgv_ptr(TCGTemp *t)
+{
+    return (TCGv_ptr)temp_tcgv_i32(t);
+}
+```
+
+temp_tcgv_i32()
+```c
+static inline TCGv_i32 temp_tcgv_i32(TCGTemp *t)
+{
+    (void)temp_idx(t); /* trigger embedded assert */
+    return (TCGv_i32)((void *)t - (void *)tcg_ctx);//temps[]相对于tcg_ctx的偏移量
+}
+```
+
+temp_idx()
+```c
+static inline size_t temp_idx(TCGTemp *ts)
+{
+    ptrdiff_t n = ts - tcg_ctx->temps;//n为temps[]相对于temps[0]的偏移量
+    tcg_debug_assert(n >= 0 && n < tcg_ctx->nb_temps);
+    return n;
 }
 ```
 
@@ -3486,11 +3719,11 @@ int tcg_gen_code(TCGContext *s, TranslationBlock *tb)
             /* fall through */
         default:
             /* Sanity check that we've not introduced any unhandled opcodes. */
-            tcg_debug_assert(tcg_op_supported(opc));//中间代码支持性检查
+            tcg_debug_assert(tcg_op_supported(opc));//中间码支持性检查
             /* Note: in order to speed up the code, it would be much
                faster to have specialized register allocator functions for
                some common argument patterns */
-            tcg_reg_alloc_op(s, op);//通用翻译函数
+            tcg_reg_alloc_op(s, op);//通用翻译
             break;
         }
 #ifdef CONFIG_DEBUG_TCG
@@ -3538,34 +3771,35 @@ int tcg_gen_code(TCGContext *s, TranslationBlock *tb)
     return tcg_current_code_size(s);
 }
 ```
-### mov翻译函数tcg_reg_alloc_mov()
+
+### mov_i32/64翻译tcg_reg_alloc_mov()
 
 > tcg/tcg.c
 
 ```c
 static void tcg_reg_alloc_mov(TCGContext *s, const TCGOp *op)
 {
-    const TCGLifeData arg_life = op->life;
+    const TCGLifeData arg_life = op->life;//输出参数的生命周期
     TCGRegSet allocated_regs, preferred_regs;
     TCGTemp *ts, *ots;
     TCGType otype, itype;
 
-    allocated_regs = s->reserved_regs;
-    preferred_regs = op->output_pref[0];
-    ots = arg_temp(op->args[0]);
-    ts = arg_temp(op->args[1]);
+    allocated_regs = s->reserved_regs;//已分配的寄存器，保留寄存器
+    preferred_regs = op->output_pref[0];//优先寄存器
+    ots = arg_temp(op->args[0]);//目的操作数
+    ts = arg_temp(op->args[1]);//源操作数
 
     /* ENV should not be modified.  */
-    tcg_debug_assert(!temp_readonly(ots));
+    tcg_debug_assert(!temp_readonly(ots));//目的操作数不能被修改？
 
-    /* Note that otype != itype for no-op truncation.  */
-    otype = ots->type;
-    itype = ts->type;
+    /* Note that otype != itype for no-op truncation.  */ //无运算截断
+    otype = ots->type;//目的操作数类型
+    itype = ts->type;//源操作数类型
 
-    if (ts->val_type == TEMP_VAL_CONST) {
+    if (ts->val_type == TEMP_VAL_CONST) {//源操作数为常量
         /* propagate constant or generate sti */
         tcg_target_ulong val = ts->val;
-        if (IS_DEAD_ARG(1)) {
+        if (IS_DEAD_ARG(1)) {//判断输入参数是否dead
             temp_dead(s, ts);
         }
         tcg_reg_alloc_do_movi(s, ots, val, arg_life, preferred_regs);
@@ -3576,13 +3810,13 @@ static void tcg_reg_alloc_mov(TCGContext *s, const TCGOp *op)
        to have it in a register in order to perform the copy.  Copy
        the SOURCE value into its own register first, that way we
        don't have to reload SOURCE the next time it is used. */
-    if (ts->val_type == TEMP_VAL_MEM) {
+    if (ts->val_type == TEMP_VAL_MEM) {//源操作数在内存中
         temp_load(s, ts, tcg_target_available_regs[itype],
                   allocated_regs, preferred_regs);
     }
 
     tcg_debug_assert(ts->val_type == TEMP_VAL_REG);
-    if (IS_DEAD_ARG(0)) {
+    if (IS_DEAD_ARG(0)) {//判断输出参数是否dead
         /* mov to a non-saved dead register makes no sense (even with
            liveness analysis disabled). */
         tcg_debug_assert(NEED_SYNC_ARG(0));
@@ -3638,7 +3872,22 @@ static void tcg_reg_alloc_mov(TCGContext *s, const TCGOp *op)
 }
 ```
 
-### 中间代码支持性检查tcg_op_supported()
+#### IS_DEAD_ARG(n)
+
+```c
+#define TS_DEAD  1
+#define TS_MEM   2
+#define IS_DEAD_ARG(n)   (arg_life & (DEAD_ARG << (n)))
+#define NEED_SYNC_ARG(n) (arg_life & (SYNC_ARG << (n)))
+/* While we limit helpers to 6 arguments, for 32-bit hosts, with padding,
+   this imples a max of 6*2 (64-bit in) + 2 (64-bit out) = 14 operands.
+   There are never more than 2 outputs, which means that we can store all
+   dead + sync data within 16 bits.  */
+#define DEAD_ARG  4
+#define SYNC_ARG  1
+```
+
+### 中间码支持性检查tcg_op_supported()
 
 > tcg/tcg.c
 
@@ -3935,7 +4184,7 @@ bool tcg_op_supported(TCGOpcode op)
 }
 ```
 
-### 通用翻译函数tcg_reg_alloc_op()
+### 通用翻译tcg_reg_alloc_op()
 
 > tcg/tcg.c
 
@@ -4165,7 +4414,7 @@ static int tcg_target_const_match(tcg_target_long val, TCGType type,
 }
 ```
 
-##### 约束条件宏定义
+##### 寄存器和常量的约束宏定义 掩码/bitmap
 
 > include/tcg/tcg.h
 
@@ -4184,12 +4433,25 @@ static int tcg_target_const_match(tcg_target_long val, TCGType type,
 #define TCG_CT_CONST_LONG 0x200
 #define TCG_CT_CONST_MONE 0x400
 #define TCG_CT_CONST_ORRI 0x800
-#define TCG_CT_CONST_WORD 0X1000
+#define TCG_CT_CONST_WORD 0x1000
 #define TCG_CT_CONST_U8 0x2000
-#define TCG_CT_CONST_S8 0X4000
+#define TCG_CT_CONST_S8 0x4000
+#define TCG_CT_CONST_S16 0x8000
+
+#define ALL_GENERAL_REGS  0xffffffffu
+#define ALL_VECTOR_REGS   0xffffffff00000000ull
+
+
+#ifdef CONFIG_SOFTMMU
+    #define ALL_QLDST_REGS \
+        (ALL_GENERAL_REGS & ~((1 << TCG_REG_X0) | (1 << TCG_REG_X1) | \
+                          (1 << TCG_REG_X2) | (1 << TCG_REG_X3)))
+#else
+    #define ALL_QLDST_REGS   ALL_GENERAL_REGS
+#endif
 ```
 
-##### 寄存器字母及约束字母定义
+##### 寄存器和常量的约束字母定义 掩码/bitmap
 
 > tcg/sw_64/tcg-target-con-str.h
 
@@ -4217,7 +4479,7 @@ CONST('S', TCG_CT_CONST_S8)
 CONST('T', TCG_CT_CONST_S16)//feiyang 16位有符号整数
 ```
 
-##### 中间码约束集合定义
+##### 中间码的约束集合定义
 
 > tcg/sw_64/tcg-target-con-set.h
 

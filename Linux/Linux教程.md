@@ -116,6 +116,11 @@ fy@ubuntu:~$ useradd -m [username] 需要加参数，是不会自动创建
 fy@ubuntu:~$ passwd  [username]
 方法二：
 adduser [username]更傻瓜，适合新手
+
+特殊情况：
+# 不知道root密码，但可以登其他人账户，sudo adduser fei没有设密码这一步（116之前有过该账户只是删除了）
+sudo adduser fei
+sudo passwd fei
 ```
 
 > [使用useradd创建新用户无法创建用户家目录的问题_会飞的鱼aaaa的博客-CSDN博客_useradd无法创建目录](https://blog.csdn.net/qq_40259620/article/details/124970751)
@@ -342,15 +347,15 @@ which 命令
 ps
 
 ```shell
-ps aux |grep
-ps -ef |grep
+ps aux   # 简单显示当前系统进程
+ps -elf  # 详细
 ```
 
 top
 
 ```shell
-top # 查看所有用户
-top -u  # 查看指定用户
+top     # 查看所有用户进程
+top -u  # 查看指定用户进程
 ```
 
 nohup
@@ -359,10 +364,12 @@ nohup
 nohup command &
 ```
 
-# strip
+kill & pkill
 
-库和可执行文件内含符号表symbol tables，可以使用strip命令strip掉，体积会变小，同时无法调试。库strip后会无法链接，不推荐这么做。可执行文件（a.out和elf）可以strip，，执行速度会提升？就是无法调试了。同时make install会有strip步骤，是否与这里相同？
-如何看库和可执行文件是否strip，`file 库/可执行文件`，看是否有stripped这一状态。
+```shell
+kill -9 进程号
+pkill -u username
+```
 
 # 环境变量
 
