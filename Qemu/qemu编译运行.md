@@ -164,3 +164,6 @@ qemu-6-6.2/qemu6/build/qemu-sw64 -cpu core3 自己写个Hello
 
 启动虚拟机
 图形化界面，看README里有写
+
+
+../configure --extra-cflags="-O2" --enable-linux-user --target-list=x86_64-linux-user --prefix=/usr --sysconfdir=/etc --libdir=/usr/lib/x86_64-linux-gnu --libexecdir=/usr/lib/qemu --interp-prefix=/etc/qemu-binfmt/%M --disable-docs --disable-werror --disable-blobs

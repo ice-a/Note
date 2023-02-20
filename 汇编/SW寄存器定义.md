@@ -5,10 +5,10 @@
 #ifndef __alpha_regdef_h__
 #define __alpha_regdef_h__
 
-#define v0	$0	/* function return value */
+#define v0	$0	/* function return value */ //保存函数返回值
 
 #define t0	$1	/* temporary registers (caller-saved) */
-#define t1	$2
+#define t1	$2  //临时寄存器，不需要save/restore，直接使用即可
 #define t2	$3
 #define t3	$4
 #define t4	$5
@@ -17,7 +17,7 @@
 #define t7	$8
 
 #define	s0	$9	/* saved-registers (callee-saved registers) */
-#define	s1	$10
+#define	s1	$10 //寄存器，需要save/restore
 #define	s2	$11
 #define	s3	$12
 #define	s4	$13

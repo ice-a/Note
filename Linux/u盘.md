@@ -77,3 +77,7 @@ sudo vim /etc/fstab
 # 新增
 UUID=e965e17a-b1f8-4eeb-a23d-7b369df66f45 /data                    xfs    defaults  0 0
 ```
+
+# ISSUE
+
+>Error unmounting block device 8:20: GDBus.Error:org.freedesktop.UDisks2.Error.DeviceBusy: Error unmounting /dev/sdb4: target is busy

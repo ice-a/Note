@@ -46,19 +46,27 @@
 
 完成安装后，快速拔出安装介质，插上硬盘。
 
-## 5. 修改deepin用户密码与root密码
+## 5. 设置初始用户与root用户密码
 
 ```shell
-# 修改密码
+# 方法一：在安装系统程序中设置初始用户密码，root用户密码（如果有这一步的话）
+# 方法二：进入系统后，使用passwd设置或者修改密码
+# 设置当前账户密码
 passwd
-passwd root
-su root & passwd 
-sudo passwd root（第一次设置root密码时这样操作）
+# 启用root用户
+su root & passwd
+sudo passwd root # 初始用户已经有sudo权限了
+# 填写密码
 CURRENT PASSWORD：
 NEW PASSWORD：
 RETYPE NEW PASSWORD：
+passwd: password updated successfully
 # 注意输入密码时，想用小键盘输入的话必须先按下小键盘锁定键，否则输入的密码不是123456
 ```
+
+> passwd: You may not view or modify password information for root.
+
+原因：没有权限，要加sudo
 
 ## 6. 配置网络
 
@@ -86,11 +94,11 @@ ip addr （show）
 # 仓库源的配置文件
 /etc/apt/sources.list 
 # 修改前先备份一下
-cp -p sources.list sources.bak
+sudo cp -p sources.list sources.bak
 # 修改默认的官方源，使用内网源。（在知识库中）
-vim /etc/apt/sources.list
+sudo vim /etc/apt/sources.list
 # 更新apt
-apt update
+sudo apt update
 ```
 
 ## 8. 更换内核(可选)
@@ -200,7 +208,7 @@ sudo chown fei:fei /home/fei  # 改软链接
 sudo chown fei:fei /home/fei/ # 改文件夹内容
 ```
 
-## 10. 重启ssh服务
+## 10. 启动ssh服务
 
 > 安装完毕后首次使用ssh连接时提示：
 > 
@@ -209,9 +217,11 @@ sudo chown fei:fei /home/fei/ # 改文件夹内容
 解决方案：重启ssh服务，（只有6B系统需要？原因未知）
 
 ```shell
-sudo service ssh restart 
+sudo service ssh restart
+#systemctl status sshd？
 ```
-
+[百度搜索](https://www.baidu.com/s?wd=unit%20sshd.service%20not%20found&rsv_spt=1&rsv_iqid=0xd2d9fe7a00007d43&issp=1&f=3&rsv_bp=1&rsv_idx=2&ie=utf-8&tn=baiduhome_pg&rsv_enter=1&rsv_dl=ih_5&rsv_sug3=1&rsv_sug1=1&rsv_sug7=001&rsv_sug2=1&rsv_btype=i&rsp=5&rsv_sug9=es_2_1&rsv_sug4=2544&rsv_sug=9)
+[Unit sshd.service could not be found](https://blog.csdn.net/u012253351/article/details/126153842)
 自动重启服务？
 
 # Issues
@@ -331,6 +341,12 @@ ClientAliveCountMax 1
 ClientAliveInterval 60
 ClientAliveCountMax 3
 ```
+
+## 6、用户登录时间长
+
+> /usr/bin/xauth: error/timeout in locking authority file /home/fei/.Xauthority
+
+原因：没有/home/fei/.Xauthority文件，或者用户没有访问该文件的权限。
 
 # 6、查看机器信息
 

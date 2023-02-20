@@ -1149,7 +1149,7 @@ int cpu_exec(CPUState *cpu)
                 cpu->cflags_next_tb = -1;
             }
 
-            tb = tb_find(cpu, last_tb, tb_exit, cflags);//在缓存中查找TB
+            tb = tb_find(cpu, last_tb, tb_exit, cflags);//在缓存中查找TB，若无则生成一个
             cpu_loop_exec_tb(cpu, tb, &last_tb, &tb_exit);//执行TB
             /* Try to align the host and virtual clocks
                if the guest is in advance */
@@ -1778,7 +1778,7 @@ void tcg_register_thread(void)//用户模式初始化tcg_ctx，经过层级调�
 
 用户模式下是单线程
 
-## CPU,CPUState,CPUSW64State
+## CPU
 
 要定义所有CPU的基类，需要定义CPU的类的数据结构和CPU的对象的数据结构，然后给对应的TypeInfo中的函数指针赋值即可。其中CPU类的数据结构名为CPUClass、CPU对象的数据结构名为CPUState，它们被定义在include/qom/cpu.h中，而对应的TypeInfo的赋值工作则在qom/cpu.c中进行。这里只说明CPUClass、CPUState数据结构。
 
@@ -1800,9 +1800,11 @@ struct SW64CPU {
 };
 ```
 
+## CPUState,CPUSW64State
+
 CPUState是CPU对象的数据结构，一个CPUState就表示一个虚拟机的CPU（一个cpu核心或者线程）。在QEMU中，任何CPU的操作的大部分都是对以CPUState形式出现的CPU来进行的。CPUSW64State，*env_ptr？这个数据结构保存该CPU的所有寄存器的状态，也包括段寄存器、通用寄存器、标志寄存器等，也包括FPU等浮点寄存器，以及与KVM状态相关的信息。sw64对应的数据结构是CPUSW64State，可在target/sw64/cpu.h中看到。
 
-> include/hw/core/cpu.h:CPUState
+> include/hw/core/cpu.h
 
 ```c
 struct CPUState {
@@ -1838,14 +1840,14 @@ struct CPUState {
 };//cpu、thread_cpu
 ```
 
-> target/sw64/cpu.h:CPUSW64State,target机器寄存器信息
+> target/sw64/cpu.h
 
 ```c
 typedef CPUSW64State CPUArchState;
 typedef SW64CPU ArchCPU;
 
 struct CPUSW64State {//对应tcg_init_ctx.temps[]
-    uint64_t ir[32];//SW整数寄存器R0~R31,一共32个，即/usr/include/sw_64/regdef.h中定义
+    uint64_t ir[32];//SW整数寄存器R0~R31,一共32个，
     uint64_t fr[128];//SW浮点寄存器F0~F31，一共32个，向量寄存器。
     uint64_t pc;//程序计数器
     bool is_slave;
@@ -1959,13 +1961,13 @@ struct DisasContext {
  * Architecture-agnostic disassembly context.
  */
 typedef struct DisasContextBase {
-    const TranslationBlock *tb;//用于反汇编的TB
+    const TranslationBlock *tb;//用于反汇编的tb结构体指针
     target_ulong pc_first;//当前TB的第一条guest指令pc地址
     target_ulong pc_next;//当前TB的下一条guest指令pc地址（现在处于反汇编）
     DisasJumpType is_jmp;//下一个反汇编什么指令
     int num_insns;//已翻译指令数量（包括现在的）
     int max_insns;//在TB中即将翻译的最大指令数量
-    bool singlestep_enabled;//硬件单步开启
+    bool singlestep_enabled;//硬件单步模式开启
 } DisasContextBase;
 ```
 
@@ -2135,7 +2137,7 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
 
     /* Start translating.  */
     gen_tb_start(db->tb);//IR头两条，注入指令用以检查指令计数和退出条件，创建标签exitreq_label，供gen_tb_end()使用
-    ops->tb_start(db, cpu);//该函数sw空，alpha空。arm有，i386没有
+    ops->tb_start(db, cpu);//该函数sw空，alpha空，arm有，i386空
     tcg_debug_assert(db->is_jmp == DISAS_NEXT);  /* no early exit */
     //宏函数，展开do { if (!(db->is_jmp == DISAS_NEXT)) { __builtin_unreachable(); } } while(0)
     plugin_enabled = plugin_gen_tb_start(cpu, tb,
@@ -2232,7 +2234,7 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
 }
 ```
 
-### 初始化反汇编环境init_diasa_context()
+### 初始化反汇编环境init_disas_context()
 
 > target/sw64/translate.c
 

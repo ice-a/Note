@@ -62,6 +62,7 @@ sed -i '/^[a-zA-Z]/d' $file # 以字母开头的行
 思路三：perf统计，但也只能一小题一小题统计，可以每一大题写一个脚本一次性执行多条命令
 
 > 脚本编写：
+
 ```shell
 sudo perf stat -e instructions ..(specinvoke -n得到的小题linux命令).. 2>>log.txt &&
 ...

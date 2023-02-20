@@ -1,4 +1,5 @@
 # 尝试
+
 命令：
 diff -ruNa  > qemu-6-6.2.patch 
 patch -p0 -Et < qemu-6-6.2.patch

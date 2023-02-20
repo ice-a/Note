@@ -450,3 +450,5 @@ Xx
 >hello>world
 >EOF
 #cat一个匿名文件，然后将匿名文件重定向到test.x文件
+
+[Linux命令后面常见的>/dev/null 解释](https://www.cnblogs.com/hls-code/p/16968319.html)

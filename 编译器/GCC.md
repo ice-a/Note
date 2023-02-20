@@ -11,8 +11,10 @@ gcc -s # 删除符号表和重定向信息
 gcc -l # 指定要链接的库
 ```
 
+# Strace
+
 ```shell
-strace  ./qemu-sw64 -cpu core3 /home/fei/hello-sw-dynamic   >log 2>&1 可以查看错误日志
+strace ./qemu-sw64 -cpu core3 /home/fei/hello-sw-dynamic >log 2>&1 可以查看错误日志
 找到access那一栏，可以看到去哪个目录下找动态库，哪个没找到
 目前6.2没做动态这一块
 ```
@@ -37,7 +39,7 @@ ldconfig -p|grep fortran
 
 ```shell
 # -lgfortran libgfortran这个库 --verbose 查看详细信息
-ld -lgfortran --verbose  # 查看链接器内部链接脚及其链接过程
+ld -lgfortran --verbose  # 查看链接器内部链接脚本及其链接过程
 ld --verbose|grep SEARCH # 查看ld搜索路径
 ```
 
@@ -45,6 +47,8 @@ ld --verbose|grep SEARCH # 查看ld搜索路径
 反汇编：把机器码翻译成成汇编语言
 objdump -D 可执行文件 > 文件
 ```
+
+[linux缺少libz.so,Ubuntu15.04如何查找libz.so.1属于哪个包并安装](https://blog.csdn.net/weixin_42139302/article/details/116931847)
 
 # Binutils
 
