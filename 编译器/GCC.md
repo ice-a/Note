@@ -19,18 +19,29 @@ strace ./qemu-sw64 -cpu core3 /home/fei/hello-sw-dynamic >log 2>&1 可以查看�
 目前6.2没做动态这一块
 ```
 
-# ld
+# Glibc
+
+## ldd
 
 ```shell
-ldd 可执行文件
-# 可以它的看到依赖的库文件，从其他地方拷过去。
-# 有两个，一个是glibc库文件，一个是ld库文件，ld链接器会链接这两个库文件的。
-
-ldd 库
-# 依赖的库
+ldd 可执行文件、命令/库
+# 其中linux-vdso.so.1是由内核提供的库文件，通过find命令在磁盘上找不到该文件，其他是对应目录下的常规共享库文件
+# 有多个库（hello比较简单，只有三个），其中一个是glibc库文件，一个是ld库文件，ld链接器会链接这两个库文件的。
+# 如果出现没有找到，可能是
 ```
 
 [ldd not a dynamic executable 问题_Chris_zhangrx的博客-CSDN博客](https://blog.csdn.net/Chris_zhangrx/article/details/114396042)
+
+## 如何查看glibc版本
+
+1、ls -l /lib/libc.so.*  
+看到那些文件链接到哪里，就知道是什么版本的了。
+
+2、/lib/libc.so.6 把这个文件当[命令执行](https://so.csdn.net/so/search?q=%E5%91%BD%E4%BB%A4%E6%89%A7%E8%A1%8C&spm=1001.2101.3001.7020)一下
+
+3、[ldd](https://so.csdn.net/so/search?q=ldd&spm=1001.2101.3001.7020) --version //ldd命令为glibc提供
+
+# ld
 
 ```shell
 # 查看链接文件所在路径
@@ -38,7 +49,7 @@ ldconfig -p|grep fortran
 ```
 
 ```shell
-# -lgfortran libgfortran这个库 --verbose 查看详细信息
+# -lgfortran 即libgfortran这个库 --verbose 查看详细信息
 ld -lgfortran --verbose  # 查看链接器内部链接脚本及其链接过程
 ld --verbose|grep SEARCH # 查看ld搜索路径
 ```
@@ -54,7 +65,7 @@ objdump -D 可执行文件 > 文件
 
 GNU二进制工具集
 
-# strip
+## strip
 
 strip是可以对已经编译生成的目标文件进行删减的工具，它有各种命令选项，可以用来删除对应的信息，比如 -g 仅删除 gcc -g 添加的调试信息。
 
@@ -63,3 +74,4 @@ strip是可以对已经编译生成的目标文件进行删减的工具，它有
 库strip后会无法链接，不推荐这么做。可执行文件（a.out和elf）可以strip，执行速度会提升？就是无法调试了。同时make install会有strip步骤，是否与这里相同？
 
 如何看库和可执行文件是否strip，`file 库/可执行文件`，看是否有stripped这一状态。
+

@@ -518,12 +518,12 @@ static void object_initialize_with_type(Object *obj, size_t size, TypeImpl *type
 }   
 static void object_init_with_type(Object *obj, TypeImpl *ti)
 {
-    if (type_has_parent(ti)) {
+    if (type_has_parent(ti)) {//有父类型，则初始化父类型
         object_init_with_type(obj, type_get_parent(ti));
     }
 
-    if (ti->instance_init) {
-        ti->instance_init(obj);
+    if (ti->instance_init) {//tcg_accel_instance_init,device_initfn,cpu_common_initfn
+        ti->instance_init(obj);//x86_cpu_init_fn,max_x86_cpu_initfn
     }
 }  
 static void core3_init(Object *obj)
@@ -2322,13 +2322,13 @@ static inline void gen_tb_end(const TranslationBlock *tb, int num_insns)
 ```c
 static void sw64_tr_translate_insn(DisasContextBase *dcbase, CPUState *cpu)
 {
-    DisasContext *ctx = container_of(dcbase, DisasContext, base);
+    DisasContext *ctx = container_of(dcbase, DisasContext, base);//target指令地址dcbase->pc_next/ctx->base->pc_next
     CPUSW64State *env = cpu->env_ptr;
     uint32_t insn;
 
     insn = cpu_ldl_code(env, ctx->base.pc_next & (~3UL));//取指令
     ctx->env = env;
-    ctx->base.pc_next += 4;
+    ctx->base.pc_next += 4;//下一条target指令地址
     ctx->base.is_jmp = ctx->translate_one(dcbase, insn, cpu);//翻译
 
     free_context_temps(ctx);

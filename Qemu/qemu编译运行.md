@@ -23,7 +23,7 @@ Advanced options (experts only):
   --cross-cc-ARCH=CC       use compiler when building ARCH guest test cases
   --libdir=PATH            install libraries in PATH
   --libexecdir=PATH        install helper binaries in PATH
-  --sysconfdir=PATH        install config in PATH/$qemu_suffix # 
+  --sysconfdir=PATH        install config in PATH/$qemu_suffix
   --disable-werror         disable compilation abort on warning
   --disable-blobs          disable installing provided firmware blobs
 
@@ -34,7 +34,7 @@ disabled with --disable-FEATURE, default is enabled if available
   docs            build documentation
 ```
 
-3、新建build文件夹，新建config.sh脚本，添加configure脚本的参数，运行的话参数设置O2，调试程序参数设置O0，测试性能需要把-g、debug等调试相关选项都去掉。更改脚本文件权限，增加执行权限chmod +x。
+3、新建build文件夹，新建config.sh脚本，写入configure命令及参数，运行的话参数设置O2，调试程序参数设置O0，测试性能需要把-g、debug等调试相关选项都去掉。更改脚本文件权限，增加执行权限chmod +x。
 
 4、./config.sh配置环境（编译日志config.log），make -j40编译出可执行文件，make install安装可执行文件到指定路径下。
 
@@ -56,20 +56,19 @@ make -j40
 
 > 报错信息：
 > 情况一：
+> qemu-x86_64:Could not open '/lib64/ld-linux-x86_64.so.2':No such file or directory
 > 
-> qemu-x86_64:Could not open '/lib64/ld-linux-x86-64.so.2':No such file or directory
 > 情况二：
-> 
 > qemu-sw64:/lib/ld-linux.so.2:Invalid ELF image for this architecture
-> 情况三：
 > 
+> 情况三：
 > /home/gao/spec2006_x86_ubuntu20.04/bin/specperl: error while loading shared libraries: libnsl.so.1: cannot open shared object file: No such file or directory.
 > spec的命令要用qemu-x86_64执行，需要动态库。
 
 解决方案：执行动态编译的程序需要拷贝对应架构的动态库到qemu编译参数的指定路径下。
 路径：查看config.sh中--interp-prefix= 参数（一般为/etc/qemu-binfmt/%M，默认参数在configure中），或通过qemu-xx -h/-help/--help查看，或通过config.log查看。
 
-动态库：如ubuntu-18.04-x86_64，建软链接名为x86_64(有必要？)，一般需要动态库libc.so.6，与链接器ld-linux-x64-64.so.2（是否对？）。
+动态库：如ubuntu-18.04-x86_64，建软链接名为x86_64(有必要？有必要，可以看到配置中写的是x86_64)，一般需要动态库libc.so.6与链接器ld-linux-x86_64.so.2（是否对？对，貌似只需要这两个库文件-在别的系统上这两个是软链接，拷贝过来直接就是链接的库文件，可以放在放在提示的目录下，也可以放在qemu配置目录下）。
 
 ## 编译与安装的md5校验
 

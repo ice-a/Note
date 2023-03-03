@@ -1,5 +1,6 @@
 # binfmt介绍
 
+参考文章：
 [binfmt.d 中文手册](https://www.wenjiangs.com/doc/systemd-binfmt-d)
 [linux下使用binfmt_misc设定不同二进制的打开程序](https://blog.csdn.net/whatday/article/details/88299482/)
 
@@ -13,7 +14,7 @@
 
 ```shell
 /proc/sys/fs/binfmt_misc/<name>
-    status # 配置状态
+    status   # 配置状态
     register # 注册配置
 ```
 
@@ -41,7 +42,7 @@ sudo sh -c 'echo 0 >/proc/sys/fs/binfmt_misc/qemu-x86_64'  # 禁用qemu-x86_64�
 
 方法二：使用binfmt-support
 
-### binfmt-support配置步骤
+### binfmt-support
 
 1、加载模块
 
@@ -63,10 +64,10 @@ sudo apt-get install binfmt-support # 默认binfmt-support已经安装
 
 # 配置文件qemu-x86_64
 package qemu-user-static
-interpreter /home/tianx/qemu6/build/qemu-x86_64
-magic \x7f\x45\x4c\x46\x02\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x3e\x00
-offset 0
-mask \xff\xff\xff\xff\xff\xfe\xfe\xfc\xff\xff\xff\xff\xff\xff\xff\xff\xfe\xff\xff\xff
+interpreter /home/tianx/qemu6/build/qemu-x86_64 # 解释器路径
+magic \x7f\x45\x4c\x46\x02\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x3e\x00 # 查看命令 od -x --read-bytes=20 可执行文件
+offset 0  # 偏移
+mask \xff\xff\xff\xff\xff\xfe\xfe\xfc\xff\xff\xff\xff\xff\xff\xff\xff\xfe\xff\xff\xff # 匹配规则，1代表必须完全匹配，0代表不必完全匹配
 credentials yes
 fix_binary yes
 ```

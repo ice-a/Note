@@ -9,50 +9,50 @@ gdb -x gdbinit
 
 # 常用命令
 
-| 命令                                                                                               | 作用                         |
-| ------------------------------------------------------------------------------------------------ | -------------------------- |
-| **运行**                                                                                           |                            |
-| `(gdb) file [program]`                                                                           | 设置调试程序                     |
-| `(gdb) run [program]`                                                                            | 启动程序                       |
-| `(gdb) set args []`                                                                              | 设置参数                       |
-| `(gdb) show args`                                                                                | 显示参数                       |
-| `start`                                                                                          | 相当于在main打断点并运行             |
-| `starti`                                                                                         | 第一条汇编指令                    |
-| `list(l)`                                                                                        | 显示源代码                      |
-| `next(n)`                                                                                        | 单步跳过-源码级                   |
-| `step(s)`                                                                                        | 单步进入-源码级                   |
-| `nexti(ni)`                                                                                      | 单步跳过-指令级                   |
-| `stepi(si)`                                                                                      | 单步进入-指令级                   |
-| `finish`                                                                                         | 跳出当前函数                     |
-| `until(u)`                                                                                       | 运行到函数某一行                   |
-| `continue(c)`                                                                                    | 执行到下一个断点或程序结束              |
-| **断点**                                                                                           |                            |
-| `break(b) 行号`<br/>             `函数名`<br/>             `文件:行号`<br/>             `*地址`<br/>`if 条件` | 设置断点（函数名或者行号）<br/>设置断点触发条件 |
-| `info breakpoint(b)`                                                                             | 查看断点                       |
-| `delete(d，del) 断点编号`                                                                             | 删除断点                       |
-| `disable/enable(dis,ena) 1`                                                                      | 禁用/启用断点                    |
-| `ignore [断点编号]  [次数]`                                                                            | 设置断点忽略次数                   |
-| `condition [断点编号] [变量==值 ]`                                                                      | 修改断点触发条件                   |
-| **查看变量**                                                                                         |                            |
-| `print(p)/x` <br/>             `/o`<br/>             `/t`                                        | 十六进制<br/>八进制<br/>二进制       |
-| `frame(f)`                                                                                       | 查看函数信息                     |
-| `info args`                                                                                      | 查看函数参数                     |
-| `info locals`                                                                                    | 查看函数变量                     |
-| `info(i) r`<br/>`info(i) r a`                                                                    | 查看整数寄存器<br/>查看所有寄存器        |
-| `info source`                                                                                    | 查看当前源码信息，所在文件完整路径          |
-|                                                                                                  |                            |
-| `display(disp) /x,o,t`                                                                           | 监控值                        |
-| `display /i $pc`                                                                                 | 打印下多少条汇编代码，左边箭头是下一条汇编      |
-| `examine(x) /<n/f/u> <addr>`                                                                     | 查看内存地址中的值                       |
-| `ctrl+alt+X`                                                                                     | 打开TUI界面                    |
-| `focus(fs) cmd` <br/>`fs src fs next`                                                            | 聚焦到命令行                     |
-| `set 变量名=值`                                                                                      | 赋值                         |
-| `ctrl + L`                                                                                       | 刷新                         |
-| `backtrace(bt)`                                                                                  | 显示函数调用栈                    |
-| `show environment`                                                                               | 查看环境变量                     |
-| `quit(q)`                                                                                        | 退出                         |
-| `watchpoint`                                                                                     | 观察点                        |
-| `checkpoint`                                                                                     | 检查点                        |
+| 命令                                                                                                          | 作用                                                   |
+| ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| **运行**                                                                                                      |                                                        |
+| `(gdb) file [program]`                                                                                        | 设置调试程序                                           |
+| `(gdb) run [program]`                                                                                         | 启动程序                                               |
+| `(gdb) set args []`                                                                                           | 设置参数                                               |
+| `(gdb) show args`                                                                                             | 显示参数                                               |
+| `start`                                                                                                       | 相当于在main打断点并运行                               |
+| `starti`                                                                                                      | 第一条汇编指令                                         |
+| `list(l)`                                                                                                     | 显示源代码                                             |
+| `next(n)`                                                                                                     | 单步跳过-源码级                                        |
+| `step(s)`                                                                                                     | 单步进入-源码级                                        |
+| `nexti(ni)`                                                                                                   | 单步跳过-指令级                                        |
+| `stepi(si)`                                                                                                   | 单步进入-指令级                                        |
+| `finish`                                                                                                      | 跳出当前函数                                           |
+| `until(u)`                                                                                                    | 运行到函数某一行                                       |
+| `continue(c)`                                                                                                 | 执行到下一个断点或程序结束                             |
+| **断点**                                                                                                      |                                                        |
+| `break(b) 行号`<br/>             `函数名`<br/>             `文件:行号`<br/>             `*地址`<br/>`if 条件` | 设置断点（函数名或者行号）<br/>设置断点触发条件        |
+| `info breakpoint(b)`                                                                                          | 查看断点                                               |
+| `delete(d，del) 断点编号`                                                                                     | 删除断点                                               |
+| `disable/enable(dis,ena) 1`                                                                                   | 禁用/启用断点                                          |
+| `ignore [断点编号]  [次数]`                                                                                   | 设置断点忽略次数                                       |
+| `condition [断点编号] [变量==值 ]`                                                                            | 修改断点触发条件                                       |
+| **查看变量**                                                                                                  |                                                        |
+| `print(p)/x` <br/>             `/o`<br/>             `/t`                                                     | 十六进制<br/>八进制<br/>二进制                         |
+| `frame(f)`                                                                                                    | 查看函数信息                                           |
+| `info args`                                                                                                   | 查看函数参数                                           |
+| `info locals`                                                                                                 | 查看函数变量                                           |
+| `info(i) r`<br/>`info(i) r a`                                                                                 | 查看整数寄存器<br/>查看所有寄存器                      |
+| `info source`                                                                                                 | 查看当前源码信息，所在文件完整路径                     |
+|                                                                                                               |                                                        |
+| `display(disp) /x,o,t`                                                                                        | 监控值                                                 |
+| `display /i $pc`                                                                                              | 打印下多少条汇编指令，左边箭头是下一条即将执行的汇编。原理：/i是以汇编格式打印，$pc为pc寄存器的内容，就是取pc寄存器保存的pc地址的内容。 |
+| `examine(x) /<n/f/u> <addr>`                                                                                  | 查看内存地址保存的内容                                     |
+| `ctrl+alt+X`                                                                                                  | 打开TUI界面                                            |
+| `focus(fs) cmd` <br/>`fs src fs next`                                                                         | 聚焦到命令行                                           |
+| `set 变量名=值`                                                                                               | 赋值                                                   |
+| `ctrl + L`                                                                                                    | 刷新                                                   |
+| `backtrace(bt)`                                                                                               | 显示函数调用栈                                         |
+| `show environment`                                                                                            | 查看环境变量                                           |
+| `quit(q)`                                                                                                     | 退出                                                   |
+| `watchpoint`                                                                                                  | 观察点                                                 |
+| `checkpoint`                                                                                                  | 检查点                                                 |
 
 - 十进制（Decimal）
   由数字0-9组成，不能以0开头。

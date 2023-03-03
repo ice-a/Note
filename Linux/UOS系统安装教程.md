@@ -177,9 +177,9 @@ submenu 'Advanced options for UnionTech OS Server 20 Enterprise GNU/Linux' $menu
 1、单次挂载硬盘
 
 ```shell
-# 硬盘会自动挂载到/media/deepin/xxx，对应设备为/dev/sxx
+# 硬盘会自动挂载到/media/deepin/xxx（或者没有挂载？），对应设备为/dev/sxx
 lsblk
-# 解除挂载
+# 解除挂载（不需要这步？）
 umount /dev/sxx
 # 将硬盘重新挂载到/mnt/
 sudo mount /media/deepin/xxx /mnt/
@@ -210,19 +210,21 @@ sudo chown fei:fei /home/fei/ # 改文件夹内容
 
 ## 10. 启动ssh服务
 
-> 安装完毕后首次使用ssh连接时提示：
+> 开机后使用ssh连接时提示：
 > 
 > ssh: connect to host 172.16.129.114 port 22: Connection refused
 
-解决方案：重启ssh服务，（只有6B系统需要？原因未知）
+错误原因：开机不会自动启动ssh服务。
+解决方案：手动启动ssh服务，同时设置ssh服务开机键自启动。
 
 ```shell
-sudo service ssh restart
-#systemctl status sshd？
+sudo service ssh start
+systemctl status sshd # 开机未自动启动
+# systemctl status sshd ？
+systemctl enable ssh # 设置开机自启动
 ```
 [百度搜索](https://www.baidu.com/s?wd=unit%20sshd.service%20not%20found&rsv_spt=1&rsv_iqid=0xd2d9fe7a00007d43&issp=1&f=3&rsv_bp=1&rsv_idx=2&ie=utf-8&tn=baiduhome_pg&rsv_enter=1&rsv_dl=ih_5&rsv_sug3=1&rsv_sug1=1&rsv_sug7=001&rsv_sug2=1&rsv_btype=i&rsp=5&rsv_sug9=es_2_1&rsv_sug4=2544&rsv_sug=9)
 [Unit sshd.service could not be found](https://blog.csdn.net/u012253351/article/details/126153842)
-自动重启服务？
 
 # Issues
 
@@ -237,12 +239,13 @@ sudo service ssh restart
 2、删除与该提示相关的软件（包）
 
 ```shell
+# 搜索
 dpkg -l|grep license 
 dpkg -r 上条命令搜到的包名
 apt-get remove 上条命令搜到的包名
-强制删除
+# 强制删除
 dkpg --force-all -r 包名
-完整删除命令
+# 完整删除命令
 dkpg -P 包名
 ```
 
@@ -326,29 +329,45 @@ password    optional    pam_gnome_keyring.so
 
 > 长时间没有输入，自动断开，需要重新登录：
 > 
-> Connection to xxx closed by remote host.
-> Connection to xxx closed
+> Connection to xxx.xxx.xxx.xxx closed by remote host.
+> Connection to xxx.xxx.xxx.xxx closed.
 
 解决方案：
 
 > /etc/ssh/sshd_config
 
+方法一：设置SSH服务端心跳配置
+
 ```shell
-# 下面两个
+# 心跳配置
 ClientAliveInterval 900
 ClientAliveCountMax 1
 # 修改为
-ClientAliveInterval 60
-ClientAliveCountMax 3
+ClientAliveInterval 60 # 设置间隔多长时间向客户端发送心跳
+ClientAliveCountMax 3  # 设置向客户端发送多少次心跳都失败后自动断开连接
 ```
 
-## 6、用户登录时间长
+方法二：设置SSH客户端心跳配置
+
+```shell
+# 心跳配置
+ServerAliveInterval 20  # 设置间隔多长时间向服务端发送心跳
+ServerAliveCountMax 999 # 设置向服务端发送多少次心跳都失败后自动断开连接
+```
+
+```
+# 修改配置后重启ssh服务
+sudo service ssh restart
+sudo systemctl restart ssh
+```
+
+## 6、用户ssh登录时间长
 
 > /usr/bin/xauth: error/timeout in locking authority file /home/fei/.Xauthority
 
 原因：没有/home/fei/.Xauthority文件，或者用户没有访问该文件的权限。
 
-# 6、查看机器信息
+## 7、查看机器信息
 
 ```shell
 /etc/os-release   # 操作系统发行版

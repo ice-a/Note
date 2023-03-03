@@ -69,10 +69,16 @@ pwd [file] # 查看当前/文件所在路径
 realpath file # 查看文件的完整路径
 ```
 
-mkdir
+mkdir（创建目录）
 
 ```shell
-mkdir
+mkdir 
+# 同时创建多个目录
+mkdir a b c
+# 忽略已有目录，覆盖式创建一个新目录
+mkdir a -p
+# 创建多级目录
+mkdir -p a/b/c
 ```
 
 lsblk 查看所有硬件
@@ -96,7 +102,7 @@ Symbolic Link (符号链接)
 fy@ubuntu:~$ ln [-sf] 来源文件 目标文件
 选项与参数：
 -s, --symbolic：不加此参数默认hard link，加就是symbolic link
--f ：如果目标文件存在时，就主动的将目标文件直接移除后再创建！
+-f ：如果目标文件存在，就主动的将目标文件直接移除后再创建！
 ```
 
 修改符号链接拥有者
@@ -355,7 +361,7 @@ top
 
 ```shell
 top     # 查看所有用户进程
-top -u  # 查看指定用户进程
+top -u [username] # 查看指定用户进程
 ```
 
 nohup

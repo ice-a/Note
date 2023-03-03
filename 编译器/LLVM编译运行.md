@@ -55,7 +55,7 @@ export LIBRARY_PATH=$LLVM_PATH/lib:$LIBRARY_PATH # 把llvm/lib添加到环境变
 
 ## 1、磁盘空间满了
 
-> 编译llvm（ninja -j40）
+> 编译llvm时（ninja -j40）
 > 
 > 报错：
 > 
@@ -63,7 +63,7 @@ export LIBRARY_PATH=$LLVM_PATH/lib:$LIBRARY_PATH # 把llvm/lib添加到环境变
 
 错误原因：硬盘满了
 
-> 安装llvm（ninja install）
+> 安装llvm时（ninja install）
 > 
 > 报错：
 > 
