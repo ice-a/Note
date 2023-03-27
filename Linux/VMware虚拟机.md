@@ -93,24 +93,24 @@ gdb:no such file or directory
 
 # Issues
 
-## U盘连接
+## 1、U盘连接
 
 硬件USB控制器的连接USB兼容性选择USB3.0
 
 选择您希望将U盘连接到的位置 ，选择虚拟机
 
-## 关闭ubuntu中终端使用TAB键时BELL提示音
+## 2、关闭ubuntu中终端使用TAB键时BELL提示音
 
 ```shell
 sudo vim /etc/inputrc
 找到# set bell-style none 去掉注释
 ```
 
-## 软件仓库官方源更换为国内源
+## 3、软件仓库官方源更换为国内源
 
 > [ubuntu更换国内源_EmbededCoder的博客-CSDN博客_ubuntu换源](https://blog.csdn.net/u012308586/article/details/102953882)
 
-## 虚拟机使用代理
+## 4、虚拟机使用代理
 
 ### 方法一、共享主机VPN
 
@@ -118,25 +118,29 @@ sudo vim /etc/inputrc
 
 ### 方法二：直接在虚拟机中使用VPN
 
-## 时间同步
+## 5、时间同步
 
 虚拟机设置开启时间同步，系统时区改为上海
 
 setting->Date&Time
 
-## 屏幕锁定时间
+## 6、屏幕锁定时间
 
 setting->Privacy->Screen Lock
 
-## 终端分屏
+## 7、终端分屏
 
 > [Ubuntu终端多窗口分屏Terminator_一只积极向上的小咸鱼的博客-CSDN博客_ubuntu终端分屏](https://blog.csdn.net/m0_49448331/article/details/121909760)
 
-## install报错
+## 8、install报错
 
 > fy@ubuntu:~/perfdbt$ sudo apt-get install gcc-aarch64-linux-gnu
 > E: dpkg was interrupted, you must manually run 'sudo dpkg --configure -a' to correct the problem. 
 
-# ubuntu中文输入
+## 9、ubuntu中文输入
 
 安装中文输入法setting->Region & Language->Manage Installed Languages->Install/Remove Languages->勾选Chinese(simplified)，然后重启系统，Input Sources添加Chinese(Intelligent Pinyin)
+
+## 10、扩展磁盘空间
+
+[vmware虚拟机扩展磁盘空间](https://blog.csdn.net/qq_43212582/article/details/123193404)

@@ -1,8 +1,8 @@
 # UOS系统安装
 
-6A镜像版本：uniontechos-server-20-enterprise-1021-sw_64-20210119-1119-B5
+6A镜像：uniontechos-server-20-enterprise-1021-sw_64-20210119-1119-B5
 
-6B镜像版本：uniontechos-server-20-enterprise-1030-sw_64-20210810-1018-B5
+6B镜像：uniontechos-server-20-enterprise-1030-sw_64-20210810-1018-B5
 
 ## 1. U盘启动盘制作，U盘作为系统盘启动
 
@@ -42,7 +42,7 @@
 
 选择全盘安装
 
-## 4. 重启
+## 4. 重启，进入系统，
 
 完成安装后，快速拔出安装介质，插上硬盘。
 
@@ -72,7 +72,7 @@ passwd: password updated successfully
 
 注意有没有插上网线，不同网口对应不同的网卡。
 
-ip：172.16.xxx.xxx 1~254,自己选择，注意不能和别的机器冲突，ping一下看看有没有空闲的ip再设置。
+ip：172.16.xxx.xxx 1~254，自己选择，注意不能和别的机器冲突，ping一下看看有没有空闲的ip再设置。
 我们机房是129，周枫他们机房是131。
 子网掩码：255.255.255.0 /24
 网关：172.16.xxx.254 254
@@ -88,7 +88,9 @@ ip addr （show）
 
 后续操作
 
-## 7. 配置软件仓库源
+# 环境搭建
+
+## 1. 仓库换源
 
 ```shell
 # 仓库源的配置文件
@@ -101,7 +103,7 @@ sudo vim /etc/apt/sources.list
 sudo apt update
 ```
 
-## 8. 更换内核(可选)
+## 2. 更换内核(可选)
 
 sw6b机器原版内核，使用GDB运行大型程序时会出问题，所以要更换内核。
 
@@ -134,7 +136,6 @@ sudo update-initramfs -c -k 4.19.0-sw64-server-225-gdb+
 
 ```shell
 vim /boot/grub/grub.cfg
-
 
 menuentry 'UnionTech OS Server 20 Enterprise GNU/Linux for gdb' --class uniontech --class gnu-linux --class gnu --class os $menuentry_id_option 'gnulinux-simple-f95390a7-e836-4cc0-af2f-4aef16250e90' {
     set boot=(${root})/boot/
@@ -172,7 +173,7 @@ submenu 'Advanced options for UnionTech OS Server 20 Enterprise GNU/Linux' $menu
 }
 ```
 
-## 9. 硬盘挂载(可选)
+## 3. 硬盘挂载(可选)
 
 1、单次挂载硬盘
 
@@ -192,7 +193,7 @@ blkid # 查看设备的UUID和磁盘格式
 vim /etc/fstab # 写入硬盘信息和挂载点
 ```
 
-## 10. 创建用户，用户主目录链接到挂载硬盘相应文件夹(可选)
+## 4. 创建用户，用户主目录链接到挂载硬盘相应文件夹(可选)
 
 重新创建用户，并链接到/mnt相应文件夹
 
@@ -208,7 +209,7 @@ sudo chown fei:fei /home/fei  # 改软链接
 sudo chown fei:fei /home/fei/ # 改文件夹内容
 ```
 
-## 10. 启动ssh服务
+## 5. 启动ssh服务
 
 > 开机后使用ssh连接时提示：
 > 
@@ -325,6 +326,8 @@ password    optional    pam_gnome_keyring.so
 # end of pam-auth-update config
 ```
 
+[《统信UOS》设置等保三级](https://knowledge.ipason.com/ipKnowledge/knowledgedetail.html/1363)
+
 ## 5、ssh连接自动断开
 
 > 长时间没有输入，自动断开，需要重新登录：
@@ -373,6 +376,7 @@ sudo systemctl restart ssh
 /etc/os-release   # 操作系统发行版
 /etc/os-version   # 操作系统具体版本
 /etc/product-info # 完整版本号
+lscpu             # 查看CPU参数
 /proc/cpuinfo     # CPU参数
 arch              # 架构
 uname -a          # 内核版本

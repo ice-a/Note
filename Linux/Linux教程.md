@@ -360,7 +360,7 @@ ps -elf  # 详细
 top
 
 ```shell
-top     # 查看所有用户进程
+top     # 查看所有进程的CPU使用率，按1查看多核CPU使用率
 top -u [username] # 查看指定用户进程
 ```
 

@@ -3,7 +3,6 @@
 ## 步骤
 
 1、git clone下载源代码。Readme.rst：公版自带，qemu的编译方法，README：自己写的，有编译参数、测试命令
-
 （编译之前改文件拥有者sudo chown -R fei:fei /home/fei/qemu-6.2.0-work1/？），configure中搜Standard options中可以看到编译选项（./configure --help）搜default_feature为默认参数。
 
 ```shell
@@ -13,20 +12,20 @@ Options: [defaults in brackets after descriptions]
 Standard options:
   --help                   print this message # 打印选项信息
   --prefix=PREFIX          install in PREFIX [$prefix] # 安装路径，一般写/usr就会安装在/usr/bin/目录下。
-  --interp-prefix=PREFIX   where to find shared libraries, etc.
+  --interp-prefix=PREFIX   where to find shared libraries, etc. # 动态库（共享库）搜索路径
                            use %M for cpu name [$interp_prefix] # %M是cpu name，即arch
 # 动态库路径，执行动态编译文件需要用到。默认参数为/usr/gnemul/qemu-%M（可在configure中看到），自己的一般写成/etc/qemu-binfmt/%M
   --target-list=LIST       set target list (default: build all non-deprecated) # 设定目标架构
 Advanced options (experts only):
   --cross-prefix=PREFIX    use PREFIX for compile tools, PREFIX can be blank [$cross_prefix] # 使用指定编译工具，交叉编译器
-  --extra-cflags=CFLAGS    append extra C compiler flags QEMU_CFLAGS # gcc编译参数
+  --extra-cflags=CFLAGS    append extra C compiler flags QEMU_CFLAGS # 添加额外的gcc编译参数
   --cross-cc-ARCH=CC       use compiler when building ARCH guest test cases
   --libdir=PATH            install libraries in PATH
   --libexecdir=PATH        install helper binaries in PATH
   --sysconfdir=PATH        install config in PATH/$qemu_suffix
-  --disable-werror         disable compilation abort on warning
-  --disable-blobs          disable installing provided firmware blobs
-
+  --disable-werror         disable compilation abort on warning      # 关闭警告时编译停止
+  --disable-blobs          disable installing provided firmware blobs # 关闭安装
+ 
 Optional features, enabled with --enable-FEATURE and
 disabled with --disable-FEATURE, default is enabled if available
 (unless built with --without-default-features):
@@ -65,10 +64,9 @@ make -j40
 > /home/gao/spec2006_x86_ubuntu20.04/bin/specperl: error while loading shared libraries: libnsl.so.1: cannot open shared object file: No such file or directory.
 > spec的命令要用qemu-x86_64执行，需要动态库。
 
-解决方案：执行动态编译的程序需要拷贝对应架构的动态库到qemu编译参数的指定路径下。
-路径：查看config.sh中--interp-prefix= 参数（一般为/etc/qemu-binfmt/%M，默认参数在configure中），或通过qemu-xx -h/-help/--help查看，或通过config.log查看。
-
-动态库：如ubuntu-18.04-x86_64，建软链接名为x86_64(有必要？有必要，可以看到配置中写的是x86_64)，一般需要动态库libc.so.6与链接器ld-linux-x86_64.so.2（是否对？对，貌似只需要这两个库文件-在别的系统上这两个是软链接，拷贝过来直接就是链接的库文件，可以放在放在提示的目录下，也可以放在qemu配置目录下）。
+解决方案：执行动态编译的程序需要拷贝对应架构的动态库到qemu编译参数的指定interp-prefix路径下。
+路径查看方法：1、查看config.sh中--interp-prefix= 参数（一般为/etc/qemu-binfmt/%M，默认参数在configure中）2、执行qemu-xx -h/-help/--help命令查看QEMU_LD_PREFIX3、或通过config.log查看--interp-prefix。
+动态库：一般需要动态库libc.so.6与链接器ld-linux-x86_64.so.2（貌似只需要这两个库文件-在别的系统上这两个是软链接，拷贝过来直接就是链接的库文件。可以放在放在提示的目录下,即默认的库路径，也可以放在qemu配置目录下）。
 
 ## 编译与安装的md5校验
 

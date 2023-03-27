@@ -17,8 +17,8 @@ int (\*a)[10] :  是数组指针， a是指针，指向一个数组。此数�
 inline内联函数
 
 ```
-#define FALSE 0  
-#define TRUE 1  
+#define FALSE 0
+#define TRUE 1
 #define NULL 0
 ```
 
@@ -33,3 +33,4 @@ inline内联函数
 # include
 
 [include搜索路径](https://blog.csdn.net/farmwang/article/details/72819370)
+

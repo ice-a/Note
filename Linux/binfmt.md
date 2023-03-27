@@ -36,7 +36,7 @@ sudo sh -c 'echo 0 >/proc/sys/fs/binfmt_misc/qemu-x86_64'  # 禁用qemu-x86_64�
 
 ## 基于Debian的发行版
 
-如：ubuntu、Uos系统
+如：ubuntu、Uos、欧拉系统
 
 方法一：沿用上述配置方法
 
@@ -62,12 +62,22 @@ sudo apt-get install binfmt-support # 默认binfmt-support已经安装
 # binfmt 配置文件所在目录
 /usr/share/binfmts/<name>
 
-# 配置文件qemu-x86_64
+# 配置文件
+# qemu-x86_64
 package qemu-user-static
-interpreter /home/tianx/qemu6/build/qemu-x86_64 # 解释器路径
+interpreter /home/fei/qemu6/build/qemu-x86_64 # 解释器路径
 magic \x7f\x45\x4c\x46\x02\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x3e\x00 # 查看命令 od -x --read-bytes=20 可执行文件
 offset 0  # 偏移
 mask \xff\xff\xff\xff\xff\xfe\xfe\xfc\xff\xff\xff\xff\xff\xff\xff\xff\xfe\xff\xff\xff # 匹配规则，1代表必须完全匹配，0代表不必完全匹配
+credentials yes
+fix_binary yes
+
+# qemu-sw64
+package qemu-user-static
+interpreter /home/fei/qemu6/build/qemu-sw64 # 解释器路径，想要给额外的参数就需要使用脚本
+magic \x7f\x45\x4c\x46\x02\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02\x00\x16\x99 # 查看命令 od -x --read-bytes=20 可执行文件
+offset 0  # 偏移
+mask \xff\xff\xff\xff\xff\xff\xff\x00\xff\xff\xff\xff\xff\xff\xff\xff\xfe\xff\xef\xff # 9906与9916均能够匹配
 credentials yes
 fix_binary yes
 ```

@@ -1,3 +1,4 @@
+```
 执行模块：
 流程：
 cpu_exec()开始执行，调用tb_find()去查找下一个翻译好的host codeTB，找到后调用cpu_loop_exec_tb()执行TB。
@@ -42,6 +43,8 @@ gen_tb_end()--tcg_gen_exit_tb()
 TCG后端的主要功能是把中间代码（TCG Operations）转化成Host Code。
 tcg_reg_alloc_op():tcg_reg_alloc_op()中根据输入参数、输出参数的有效性进行寄存器分配，之后调用tcg_out_op()进行tcg-target代码的转换。
 tcg_out_op()主要功能就是依据TCG操作码，调用对应的转换函数将操作转换成host机器码。
+```
+
 
 # 源码分析 Qemu Version 6.0
 
@@ -144,17 +147,17 @@ int main(int argc, char **argv)//usermode入口函数main
     }
 
     cpu_model = NULL;
-    optind = parse_args(argc, argv);//这一步获取-cpu option参数(core3)并赋值给cpu_model
+    optind = parse_args(argc, argv);//解析命令行参数。获取-cpu option参数(core3)并赋值给cpu_model
 
     /* Scan interp_prefix dir for replacement files. */
     init_paths(interp_prefix);//库文件路径
 
     init_qemu_uname_release();//检查内核版本
     ...
-    if (cpu_model == NULL) {
-        cpu_model = cpu_get_model(get_elf_eflags(execfd));//获取elf文件的cpu_model
+    if (cpu_model == NULL) {//如果不指定-cpu即cpu_model
+        cpu_model = cpu_get_model(get_elf_eflags(execfd));//则从target/xx/xx_elf.h中获取默认的cpu_model
     }
-    cpu_type = parse_cpu_option(cpu_model);//记录可选参数作为全局变量，返回cpu_type=core3-sw64-cpu
+    cpu_type = parse_cpu_option(cpu_model);//根据cpu_model匹配对应cpu_class,返回cpu_type，返回cpu_type=core3-sw64-cpu
 
     /* init tcg before creating CPUs and to get qemu_host_page_size */
     {
@@ -437,11 +440,7 @@ static void load_elf_image(const char *image_name, int image_fd,
     }
 ```
 
-## CPU创建 、CPU初始化
-
-init machine     accel_commmom_init
-
-cpu_create        object_new   cpu     sw64_cpu_initfn    core3_init
+## CPU匹配与创建
 
 ### cpu_create()
 
@@ -459,11 +458,6 @@ CPUState *cpu_create(const char *typename)
     }
     return cpu;
 }
-```
-
-### core3_init()
-
-```c
 Object *object_new(const char *typename)
 {
     TypeImpl *ti = type_get_by_name(typename);
@@ -518,14 +512,19 @@ static void object_initialize_with_type(Object *obj, size_t size, TypeImpl *type
 }   
 static void object_init_with_type(Object *obj, TypeImpl *ti)
 {
-    if (type_has_parent(ti)) {//有父类型，则初始化父类型
-        object_init_with_type(obj, type_get_parent(ti));
+    if (type_has_parent(ti)) {//类型ti有父类型
+        object_init_with_type(obj, type_get_parent(ti));//则获取父类型对象并初始化
     }
 
     if (ti->instance_init) {//tcg_accel_instance_init,device_initfn,cpu_common_initfn
-        ti->instance_init(obj);//x86_cpu_init_fn,max_x86_cpu_initfn
+        ti->instance_init(obj);//x86_cpu_init_fn,max_x86_cpu_initfn，//有初始化实例函数，则初始化
     }
 }  
+```
+
+### core3_init()
+
+```c
 static void core3_init(Object *obj)
 {
     CPUState *cs = CPU(obj);
@@ -537,7 +536,7 @@ static void core3_init(Object *obj)
 }
 ```
 
-### 在TCGContext中分配变量表示前端物理寄存器sw64_translate_init()
+### 在TCGContext中分配temp表示target物理寄存器sw64_translate_init()
 
 函数调用关系
 
@@ -622,7 +621,7 @@ void sw64_translate_init(void)
 #ifdef SW64_FIXLOCK
         DEF_VAR(lock_value),
 #endif
-    };
+    };//建立TCG中cpu_xx与env->xx的关系
     cpu_pc = tcg_global_mem_new_i64(cpu_env,
                                     offsetof(CPUSW64State, pc), "PC");//程序计数器
 
@@ -657,7 +656,7 @@ void sw64_translate_init(void)
 #endif
 
     int i;
-    //整数寄存器ir,
+    //整数寄存器ir
     for (i = 0; i < 31; i++) {
         cpu_std_ir[i] = tcg_global_mem_new_i64(
             cpu_env, offsetof(CPUSW64State, ir[i]), ireg_names[i]);
@@ -682,6 +681,75 @@ void sw64_translate_init(void)
 }
 ```
 
+```c
+static inline TCGv_i64 tcg_global_mem_new_i64(TCGv_ptr reg, intptr_t offset,
+                                              const char *name)
+{
+    TCGTemp *t = tcg_global_mem_new_internal(TCG_TYPE_I64, reg, offset, name);
+    return temp_tcgv_i64(t);//返回偏移量
+}
+TCGTemp *tcg_global_mem_new_internal(TCGType type, TCGv_ptr base,
+                                     intptr_t offset, const char *name)
+{
+    TCGContext *s = tcg_ctx;
+    TCGTemp *base_ts = tcgv_ptr_temp(base);//tcg_ctx->temps[0]=env
+    TCGTemp *ts = tcg_global_alloc(s);
+    int indirect_reg = 0, bigendian = 0;
+#ifdef HOST_WORDS_BIGENDIAN
+    bigendian = 1;
+#endif
+
+    switch (base_ts->kind) {
+    case TEMP_FIXED:
+        break;
+    case TEMP_GLOBAL:
+        /* We do not support double-indirect registers.  */
+        tcg_debug_assert(!base_ts->indirect_reg);
+        base_ts->indirect_base = 1;
+        s->nb_indirects += (TCG_TARGET_REG_BITS == 32 && type == TCG_TYPE_I64
+                            ? 2 : 1);
+        indirect_reg = 1;
+        break;
+    default:
+        g_assert_not_reached();
+    }
+
+    if (TCG_TARGET_REG_BITS == 32 && type == TCG_TYPE_I64) {
+        TCGTemp *ts2 = tcg_global_alloc(s);
+        char buf[64];
+
+        ts->base_type = TCG_TYPE_I64;
+        ts->type = TCG_TYPE_I32;
+        ts->indirect_reg = indirect_reg;
+        ts->mem_allocated = 1;
+        ts->mem_base = base_ts;
+        ts->mem_offset = offset + bigendian * 4;
+        pstrcpy(buf, sizeof(buf), name);
+        pstrcat(buf, sizeof(buf), "_0");
+        ts->name = strdup(buf);
+
+        tcg_debug_assert(ts2 == ts + 1);
+        ts2->base_type = TCG_TYPE_I64;
+        ts2->type = TCG_TYPE_I32;
+        ts2->indirect_reg = indirect_reg;
+        ts2->mem_allocated = 1;
+        ts2->mem_base = base_ts;
+        ts2->mem_offset = offset + (1 - bigendian) * 4;
+        pstrcpy(buf, sizeof(buf), name);
+        pstrcat(buf, sizeof(buf), "_1");
+        ts2->name = strdup(buf);
+    } else {
+        ts->base_type = type;
+        ts->type = type;
+        ts->indirect_reg = indirect_reg;
+        ts->mem_allocated = 1;
+        ts->mem_base = base_ts;
+        ts->mem_offset = offset;
+        ts->name = name;
+    }
+    return ts;
+}
+```
 cpu_env 表示tcg_ctx->temps[0]相对于tcg_ctx的offset，tcg_ctx->temps[0].reg=TCG_AREG0,tcg_ctx->temps[0].kind=TEMP_FIXED, tcg_ctx->temps[0].name=env
 
 TCG_AREG0是架构相关的临时寄存器，在host执行tcg_qemu_tb_exec时使用TCG_AREG0 来访问翻译模式下的env。（aarch64: TCG_AREG0 =TCG_REG_X19,sw_64:TCG_AREG0=TCG_REG_X9）
@@ -862,7 +930,7 @@ static void tcg_target_qemu_prologue(TCGContext *s)
 }
 ```
 
-### prologue代码
+### prologue汇编
 
 ```asm6502
 PROLOGUE: [size=108]
@@ -895,7 +963,9 @@ PROLOGUE: [size=108]
 0x2000e90e068:  ret $r31,(ra),0
 ```
 
-## SW：异常类型
+# 3.程序执行
+
+## sw64异常类型
 
 ```c
 enum {
@@ -903,7 +973,7 @@ enum {
     EXCP_HALT,
     EXCP_IIMAIL,
     EXCP_OPCDEC,
-    EXCP_CALL_SYS,
+    EXCP_CALL_SYS, //系统调用
     EXCP_ARITH,
     EXCP_UNALIGN,
 #ifdef SOFTMMU
@@ -921,7 +991,7 @@ enum {
 };
 ```
 
-## SW程序执行cpu_loop()
+## sw64程序执行循环cpu_loop()
 
 > linux-user/sw64/cpu_loop.c:cpu_loop
 
@@ -939,57 +1009,57 @@ void cpu_loop(CPUSW64State *env)
         cpu_exec_end(cs);//设置退出翻译执行时的相关参数
         process_queued_cpu_work(cs);//多线程状态下，处理翻译执行过程中其他线程插入的任务
         switch (trapnr) {//处理系统调用产生的异常
-            case EXCP_OPCDEC://非法的操作码
-                cpu_abort(cs, "ILLEGAL SW64 insn at line %d!", __LINE__);
-            case EXCP_CALL_SYS://正常处理
-                switch (env->error_code) {
-                    case 0x83://代表系统调用
-                        /* CALLSYS */
-                        trapnr = env->ir[IDX_V0];//trapnr系统调用号
-                        sysret = do_syscall(env, trapnr,
-                                    env->ir[IDX_A0], env->ir[IDX_A1],
-                                    env->ir[IDX_A2], env->ir[IDX_A3],
-                                    env->ir[IDX_A4], env->ir[IDX_A5],
-                                    0, 0);
-                        if (sysret == -TARGET_ERESTARTSYS) {
-                            env->pc -= 4;
-                            break;
-                        }
-                        if (sysret == -TARGET_QEMU_ESIGRETURN) {
-                            break;
-                        }
-                        /* Syscall writes 0 to V0 to bypass error check, similar
-                           to how this is handled internal to Linux kernel.
-                           (Ab)use trapnr temporarily as boolean indicating error. */
-                        trapnr = (env->ir[IDX_V0] != 0 && sysret < 0);//异常trapnr=1否则为0
-                        env->ir[IDX_V0] = (trapnr ? -sysret : sysret);//异常返回负值，否则正常返回，r0
-                        env->ir[IDX_A3] = trapnr;//r19
-                        break;
-                    default:
-                        printf("UNDO sys_call %lx\n", env->error_code);
-                        exit(-1);
+	    case EXCP_OPCDEC://target指令具有非法的操作码
+	        cpu_abort(cs, "ILLEGAL SW64 insn at line %d!", __LINE__);
+        case EXCP_CALL_SYS://系统调用
+            switch (env->error_code) {
+            case 0x83://代表系统调用
+                /* CALLSYS */
+                trapnr = env->ir[IDX_V0];//$r0存放系统调用号
+                sysret = do_syscall(env, trapnr,
+                            env->ir[IDX_A0], env->ir[IDX_A1],
+                            env->ir[IDX_A2], env->ir[IDX_A3],
+                            env->ir[IDX_A4], env->ir[IDX_A5],
+                            0, 0);//系统调用输入参数$r16,$r17,$r18,$r19,$r20,$r21
+                if (sysret == -TARGET_ERESTARTSYS) {
+                    env->pc -= 4;
+                    break;
                 }
-            break;
-            case EXCP_MMFAULT:
-                info.si_signo = TARGET_SIGSEGV;
-                info.si_errno = 0;
-                info.si_code = (page_get_flags(env->trap_arg0) & PAGE_VALID
-                                ? TARGET_SEGV_ACCERR : TARGET_SEGV_MAPERR);
-                info._sifields._sigfault._addr = env->trap_arg0;
-                queue_signal(env, info.si_signo, QEMU_SI_FAULT, &info);
-                break;
-            case EXCP_ARITH:
-                info.si_signo = TARGET_SIGFPE;
-                info.si_errno = 0;
-                info.si_code = TARGET_FPE_FLTINV;
-                info._sifields._sigfault._addr = env->pc;
-                queue_signal(env, info.si_signo, QEMU_SI_FAULT, &info);
-                break;
-            case EXCP_INTERRUPT:
-                /* just indicate that signals should be handled asap */
+                if (sysret == -TARGET_QEMU_ESIGRETURN) {
+                    break;
+                }
+                /* Syscall writes 0 to V0 to bypass error check, similar
+                    to how this is handled internal to Linux kernel.
+                    (Ab)use trapnr temporarily as boolean indicating error. */
+                trapnr = (env->ir[IDX_V0] != 0 && sysret < 0);//系统调用出错则trapnr=1正常为0
+                env->ir[IDX_V0] = (trapnr ? -sysret : sysret);//$r0保存输出。出错负值，正常返回
+                env->ir[IDX_A3] = trapnr;//$r19=系统调用返回值。
                 break;
             default:
-                cpu_abort(cs, "UNDO");
+                printf("UNDO sys_call %lx\n", env->error_code);
+                exit(-1);
+            }
+        break;
+        case EXCP_MMFAULT:
+            info.si_signo = TARGET_SIGSEGV;
+            info.si_errno = 0;
+            info.si_code = (page_get_flags(env->trap_arg0) & PAGE_VALID
+                            ? TARGET_SEGV_ACCERR : TARGET_SEGV_MAPERR);
+            info._sifields._sigfault._addr = env->trap_arg0;
+            queue_signal(env, info.si_signo, QEMU_SI_FAULT, &info);
+            break;
+        case EXCP_ARITH:
+            info.si_signo = TARGET_SIGFPE;
+            info.si_errno = 0;
+            info.si_code = TARGET_FPE_FLTINV;
+            info._sifields._sigfault._addr = env->pc;
+            queue_signal(env, info.si_signo, QEMU_SI_FAULT, &info);
+            break;
+        case EXCP_INTERRUPT:
+            /* just indicate that signals should be handled asap */
+            break;
+        default:
+            cpu_abort(cs, "UNDO");
          }
         process_pending_signals (env);
 
@@ -997,7 +1067,7 @@ void cpu_loop(CPUSW64State *env)
            implies an REI instruction has been executed.  Which means
            that RX and LOCK_ADDR should be cleared.  But there are a
            few exceptions for traps internal to QEMU.  */
-        }
+    }
 }
 ```
 
@@ -1917,7 +1987,7 @@ struct TCGContext {
 }
 ```
 
-# 3.SW前端
+# 4.sw64前端
 
 ## 结构体、宏、变量
 
@@ -2247,7 +2317,7 @@ static void sw64_tr_init_disas_context(DisasContextBase *dcbase, CPUState *cpu)
     ctx->tbflags = ctx->base.tb->flags;
     ctx->mem_idx = cpu_mmu_index(env, false);
 #ifdef CONFIG_USER_ONLY
-    ctx->ir = cpu_std_ir;//虚拟寄存器单元
+    ctx->ir = cpu_std_ir;//虚拟寄存器单元，记录的是tcg_ctx中的偏移量
 #else
     ctx->ir = (ctx->tbflags & ENV_FLAG_HM_MODE ? cpu_hm_ir : cpu_std_ir);
 #endif
@@ -2479,6 +2549,7 @@ static DisasJumpType gen_bdirect(DisasContext *ctx, int ra, int32_t disp)
 }
 ```
 
+```
 dest:目标指令有效地址
 
 64位
@@ -2486,6 +2557,7 @@ dest:目标指令有效地址
 tcg_gen_<op>i_<reg size>()
 
 Qemu调用各种微操作来生成IR，所有的微操作都是把操作码和操作数放到全局变量tcg_ctx中，相当于把指令保存到tcg_ctx。
+```
 
 ```c
  void tcg_gen_movi_i64(TCGv_i64 ret, int64_t arg)
@@ -2534,22 +2606,24 @@ static inline void tcg_gen_op2_i64(TCGOpcode opc, TCGv_i64 a1, TCGv_i64 a2)
 include/tcg/tcg-op.h
 ```
 
-## 系统调用指令
+## 系统调用指令翻译
 
 ### 系统调用相关
 
-> /usr/include/asm/unistd.h：sw系统调用号表
+> /usr/include/asm/unistd.h：sw64系统调用号表
 > 
 > linux-user/syscall.c：qemu处理系统调用相关
 > 
 > linux-user/host/sw_64/safe-syscall.inc.S qemu翻译到系统调用有时会调用这个函数，执行汇编
 
+### 指令翻译
+
 ```c
     switch (opc) {
     case 0x00://系统调用指令
         /* SYS_CALL */
-        //[25:0]，第26位不管，insn&1ffffff结果是取指令低25位的功能码，与1与表示保留自己，与0与表示置为0       
-        ret = gen_sys_call(ctx, insn & 0x1ffffff);# 
+        //[25:0]为功能码域。其中[25]为1表示SYS_CALL，为0表示SYS_CALL/b。[7:0]为系统调用号。
+        ret = gen_sys_call(ctx, insn & 0x1ffffff);//取[24:0],为系统调用号。
         break;
     }
 ```
@@ -2557,22 +2631,22 @@ include/tcg/tcg-op.h
 ```c
 static DisasJumpType gen_sys_call(DisasContext *ctx, int syscode)
 {
-    if (syscode >= 0x80 && syscode <= 0xbf) {//128~191号
+    if (syscode >= 0x80 && syscode <= 0xbf) {//系统调用号在128~191之间进行特殊处理
         switch (syscode) {
         case 0x86://__NR_shutdown  134
             /* IMB */
             /* No-op inside QEMU */
             break;
-#ifdef CONFIG_USER_ONLY //?
+#ifdef CONFIG_USER_ONLY //用户级
         case 0x9E://__NR_osf_nfssvc 158
             /* RDUNIQUE */
             tcg_gen_ld_i64(ctx->ir[IDX_V0], cpu_env,
-                           offsetof(CPUSW64State, unique));
+                           offsetof(CPUSW64State, unique));//ld_i64 $r0,env->unique
             break;
         case 0x9F://__NR_osf_getdirentries 159
             /* WRUNIQUE */
             tcg_gen_st_i64(ctx->ir[IDX_A0], cpu_env,
-                           offsetof(CPUSW64State, unique));
+                           offsetof(CPUSW64State, unique));//st_i64 $r16,env->unique
             break;
 #endif
         default:
@@ -2582,7 +2656,7 @@ static DisasJumpType gen_sys_call(DisasContext *ctx, int syscode)
     }
 do_sys_call:
 #ifdef CONFIG_USER_ONLY
-    return gen_excp(ctx, EXCP_CALL_SYS, syscode);//产生用于系统调用的异常类型EXCP_CALL_SYS
+    return gen_excp(ctx, EXCP_CALL_SYS, syscode);//产生系统调用异常EXCP_CALL_SYS，错误码为系统调用号
 #else
     tcg_gen_movi_i64(cpu_hm_ir[23], ctx->base.pc_next);
     return gen_excp(ctx, EXCP_CALL_SYS, syscode);
@@ -2590,13 +2664,583 @@ do_sys_call:
 }
 ```
 
-# 4.TCG
+```c
+static DisasJumpType gen_excp(DisasContext* ctx, int exception,
+                              int error_code)
+{
+    tcg_gen_movi_i64(cpu_pc, ctx->base.pc_next);//保存当前pc。mov_i64 cpu_pc,temp1(ctx->base.pc_next)
+    gen_excp_1(exception, error_code);//
+    return DISAS_NORETURN;
+}
+static void gen_excp_1(int exception, int error_code)
+{
+    TCGv_i32 tmp1, tmp2;
+
+    tmp1 = tcg_const_i32(exception);
+    tmp2 = tcg_const_i32(error_code);
+    gen_helper_excp(cpu_env, tmp1, tmp2);
+    tcg_temp_free_i32(tmp2);
+    tcg_temp_free_i32(tmp1);
+}
+```
+
+## gen_load_mem
+
+```c
+static inline void gen_load_mem(
+    DisasContext *ctx, void (*tcg_gen_qemu_load)(TCGv t0, TCGv t1, int flags),
+    int ra, int rb, int32_t disp16, bool fp, bool clear)
+{
+    TCGv tmp, addr, va;
+
+    /* LDQ_U with ra $31 is UNOP.  Other various loads are forms of
+       prefetches, which we can treat as nops.  No worries about
+       missed exceptions here.  */
+    if (unlikely(ra == 31)) {
+        return;
+    }
+
+    tmp = tcg_temp_new();
+    addr = load_gir(ctx, rb);
+
+    if (disp16) {
+        tcg_gen_addi_i64(tmp, addr, (int64_t)disp16);
+        addr = tmp;
+    } else {
+        tcg_gen_mov_i64(tmp, addr);
+        addr = tmp;
+    }
+    if (clear) {//数据非对界，需要清除低三位
+        tcg_gen_andi_i64(tmp, addr, ~0x7UL);
+        addr = tmp;
+    }
+
+    va = (fp ? cpu_fr[ra] : load_gir(ctx, ra));//fp表示是否是浮点装入/存储
+    tcg_gen_qemu_load(va, addr, ctx->mem_idx);
+
+    tcg_temp_free(tmp);
+}
+```
+
+### Memop
+
+```c
+typedef enum MemOp {
+    MO_8     = 0, //访问数据类型的位宽
+    MO_16    = 1,
+    MO_32    = 2,
+    MO_64    = 3,
+    MO_SIZE  = 3,   /* Mask for the above.  */
+
+    MO_SIGN  = 4,   /* Sign-extended, otherwise zero-extended.  */ //符号扩展
+
+    MO_BSWAP = 8,   /* Host reverse endian.  */  //变反字节序
+#ifdef HOST_WORDS_BIGENDIAN //host为大端
+    MO_LE    = MO_BSWAP,  //小端变反
+    MO_BE    = 0,         //大端不变
+#else
+    MO_LE    = 0,
+    MO_BE    = MO_BSWAP,
+#endif
+#ifdef NEED_CPU_H
+#ifdef TARGET_WORDS_BIGENDIAN //target为大端
+    MO_TE    = MO_BE, //MO_TE target字节序
+#else
+    MO_TE    = MO_LE, 
+#endif
+#endif
+
+    /*
+     * MO_UNALN accesses are never checked for alignment.
+     * MO_ALIGN accesses will result in a call to the CPU's
+     * do_unaligned_access hook if the guest address is not aligned.
+     * The default depends on whether the target CPU defines
+     * TARGET_ALIGNED_ONLY.
+     *
+     * Some architectures (e.g. ARMv8) need the address which is aligned
+     * to a size more than the size of the memory access.
+     * Some architectures (e.g. SPARCv9) need an address which is aligned,
+     * but less strictly than the natural alignment.
+     *
+     * MO_ALIGN supposes the alignment size is the size of a memory access.
+     *
+     * There are three options:
+     * - unaligned access permitted (MO_UNALN).
+     * - an alignment to the size of an access (MO_ALIGN);
+     * - an alignment to a specified size, which may be more or less than
+     *   the access size (MO_ALIGN_x where 'x' is a size in bytes);
+     */
+    MO_ASHIFT = 4,
+    MO_AMASK = 7 << MO_ASHIFT,
+#ifdef NEED_CPU_H
+#ifdef TARGET_ALIGNED_ONLY
+    MO_ALIGN = 0,
+    MO_UNALN = MO_AMASK,
+#else
+    MO_ALIGN = MO_AMASK,
+    MO_UNALN = 0,
+#endif
+#endif
+    MO_ALIGN_2  = 1 << MO_ASHIFT,
+    MO_ALIGN_4  = 2 << MO_ASHIFT,
+    MO_ALIGN_8  = 3 << MO_ASHIFT,
+    MO_ALIGN_16 = 4 << MO_ASHIFT,
+    MO_ALIGN_32 = 5 << MO_ASHIFT,
+    MO_ALIGN_64 = 6 << MO_ASHIFT,
+
+    /* Combinations of the above, for ease of use.  */
+    MO_UB    = MO_8, //byte
+    MO_UW    = MO_16,//word
+    MO_UL    = MO_32,//long
+    MO_SB    = MO_SIGN | MO_8,
+    MO_SW    = MO_SIGN | MO_16,
+    MO_SL    = MO_SIGN | MO_32,
+    MO_Q     = MO_64,//quad-word
+
+    MO_LEUW  = MO_LE | MO_UW,
+    MO_LEUL  = MO_LE | MO_UL,
+    MO_LESW  = MO_LE | MO_SW,
+    MO_LESL  = MO_LE | MO_SL,
+    MO_LEQ   = MO_LE | MO_Q,
+
+    MO_BEUW  = MO_BE | MO_UW,
+    MO_BEUL  = MO_BE | MO_UL,
+    MO_BESW  = MO_BE | MO_SW,
+    MO_BESL  = MO_BE | MO_SL,
+    MO_BEQ   = MO_BE | MO_Q,
+
+#ifdef NEED_CPU_H
+    MO_TEUW  = MO_TE | MO_UW,
+    MO_TEUL  = MO_TE | MO_UL,
+    MO_TESW  = MO_TE | MO_SW,
+    MO_TESL  = MO_TE | MO_SL,
+    MO_TEQ   = MO_TE | MO_Q,
+#endif
+
+    MO_SSIZE = MO_SIZE | MO_SIGN,
+} MemOp;
+```
+
+### qemu_ld
+
+```c
+void tcg_gen_qemu_ld_i64(TCGv_i64 val, TCGv addr, TCGArg idx, MemOp memop)
+{
+    MemOp orig_memop;
+    uint16_t info;
+
+    if (TCG_TARGET_REG_BITS == 32 && (memop & MO_SIZE) < MO_64) {//后端寄存器为32位且指令操作数类型小于64位
+        tcg_gen_qemu_ld_i32(TCGV_LOW(val), addr, idx, memop);
+        if (memop & MO_SIGN) {
+            tcg_gen_sari_i32(TCGV_HIGH(val), TCGV_LOW(val), 31);
+        } else {
+            tcg_gen_movi_i32(TCGV_HIGH(val), 0);
+        }
+        return;
+    }
+
+    tcg_gen_req_mo(TCG_MO_LD_LD | TCG_MO_ST_LD);//指令读写顺序,读后读，写后写
+    memop = tcg_canonicalize_memop(memop, 1, 0);//规范化memop。memop内存操作。1是否为64位。0是否为符号扩展。
+    info = trace_mem_get_info(memop, idx, 0);//trace
+    trace_guest_mem_before_tcg(tcg_ctx->cpu, cpu_env, addr, info);
+
+    orig_memop = memop;
+    if (!TCG_TARGET_HAS_MEMORY_BSWAP && (memop & MO_BSWAP)) {//后端不支持字节次序变反指令bswap且要变反字节序
+        memop &= ~MO_BSWAP;
+        /* The bswap primitive requires zero-extended input.  */
+        if ((memop & MO_SIGN) && (memop & MO_SIZE) < MO_64) {
+            memop &= ~MO_SIGN;
+        }
+    }
+
+    addr = plugin_prep_mem_callbacks(addr);
+    gen_ldst_i64(INDEX_op_qemu_ld_i64, val, addr, memop, idx);//生成中间码qemu_ld
+    plugin_gen_mem_callbacks(addr, info);
+
+    if ((orig_memop ^ memop) & MO_BSWAP) {//变反字节序
+        switch (orig_memop & MO_SIZE) {
+        case MO_16:
+            tcg_gen_bswap16_i64(val, val);
+            if (orig_memop & MO_SIGN) {
+                tcg_gen_ext16s_i64(val, val);
+            }
+            break;
+        case MO_32:
+            tcg_gen_bswap32_i64(val, val);
+            if (orig_memop & MO_SIGN) {
+                tcg_gen_ext32s_i64(val, val);
+            }
+            break;
+        case MO_64:
+            tcg_gen_bswap64_i64(val, val);
+            break;
+        default:
+            g_assert_not_reached();
+        }
+    }
+}
+```
+
+```c
+static void tcg_gen_req_mo(TCGBar type)
+{
+#ifdef TCG_GUEST_DEFAULT_MO
+    type &= TCG_GUEST_DEFAULT_MO;//guest内存
+#endif
+    type &= ~TCG_TARGET_DEFAULT_MO;//host内存
+    if (type) {
+        tcg_gen_mb(type | TCG_BAR_SC);//是否插入内存屏障指令mb
+    }
+}
+static inline MemOp tcg_canonicalize_memop(MemOp op, bool is64, bool st)
+{
+    /* Trigger the asserts within as early as possible.  */
+    (void)get_alignment_bits(op);
+
+    switch (op & MO_SIZE) {
+    case MO_8:
+        op &= ~MO_BSWAP;
+        break;
+    case MO_16:
+        break;
+    case MO_32:
+        if (!is64) {
+            op &= ~MO_SIGN;
+        }
+        break;
+    case MO_64:
+        if (!is64) {
+            tcg_abort();
+        }
+        break;
+    }
+    if (st) {//st为1，表示变为零扩展。0表示不做任何操作
+        op &= ~MO_SIGN;
+    }
+    return op;
+}
+static inline uint16_t trace_mem_get_info(MemOp op,
+                                          unsigned int mmu_idx,
+                                          bool store)
+{
+    return trace_mem_build_info(op & MO_SIZE, !!(op & MO_SIGN), //!! 把非0值变成1，0变成0
+                                op & MO_BSWAP, store,
+                                mmu_idx);
+}
+static inline uint16_t trace_mem_build_info(
+    int size_shift, bool sign_extend, MemOp endianness,
+    bool store, unsigned int mmu_idx)
+{
+    uint16_t res;
+
+    res = size_shift & TRACE_MEM_SZ_SHIFT_MASK;//8、32、64位
+    if (sign_extend) {//符号扩展
+        res |= TRACE_MEM_SE;
+    }
+    if (endianness == MO_BE) {//字节序
+        res |= TRACE_MEM_BE;
+    }
+    if (store) {//0?
+        res |= TRACE_MEM_ST;
+    }
+#ifdef CONFIG_SOFTMMU
+    res |= mmu_idx << TRACE_MEM_MMU_SHIFT;//mmu_idx系统级相关
+#endif
+    return res;
+}
+```
+
+### gen_ldst_i64
+
+```c
+static void gen_ldst_i64(TCGOpcode opc, TCGv_i64 val, TCGv addr,
+                         MemOp memop, TCGArg idx)
+{
+    TCGMemOpIdx oi = make_memop_idx(memop, idx);//组合memop与idx
+#if TARGET_LONG_BITS == 32
+    if (TCG_TARGET_REG_BITS == 32) {
+        tcg_gen_op4i_i32(opc, TCGV_LOW(val), TCGV_HIGH(val), addr, oi);
+    } else {
+        tcg_gen_op3(opc, tcgv_i64_arg(val), tcgv_i32_arg(addr), oi);
+    }
+#else
+    if (TCG_TARGET_REG_BITS == 32) {
+        tcg_gen_op5i_i32(opc, TCGV_LOW(val), TCGV_HIGH(val),
+                         TCGV_LOW(addr), TCGV_HIGH(addr), oi);
+    } else {
+        tcg_gen_op3i_i64(opc, val, addr, oi);
+    }
+#endif
+}
+```
+
+# 5.helper机制
+
+## helper函数的声明
+
+>accel/tcg/tcg-runtime.h: 通用helper函数声明
+
+```c
+DEF_HELPER_FLAGS_1(lookup_tb_ptr, TCG_CALL_NO_WG_SE, cptr, env)
+```
+
+>target/sw64/helper.h: sw64相关helper函数声明
+
+```c
+DEF_HELPER_FLAGS_2(setfpcrx, 0, void, env, i64)
+DEF_HELPER_3(excp, noreturn, env, int, int)
+```
+
+>include/exec/helper-tcg.h
+
+```c
+//helper_name
+#define DEF_HELPER_FLAGS_2(NAME, FLAGS, ret, t1, t2) \
+  { .func = HELPER(NAME), .name = str(NAME), \
+    .flags = FLAGS | dh_callflag(ret), \
+    .sizemask = dh_sizemask(ret, 0) | dh_sizemask(t1, 1) \
+    | dh_sizemask(t2, 2) },
+
+//gen_helper_name
+#define DEF_HELPER_FLAGS_2(name, flags, ret, t1, t2)                    \
+static inline void glue(gen_helper_, name)(dh_retvar_decl(ret)          \
+    dh_arg_decl(t1, 1), dh_arg_decl(t2, 2))                             \
+{                                                                       \
+  TCGTemp *args[2] = { dh_arg(t1, 1), dh_arg(t2, 2) };                  \
+  tcg_gen_callN(HELPER(name), dh_retvar(ret), 2, args);                 \
+}
+```
+
+>include/exec/helper-head.h
+
+```
+#define DEF_HELPER_0(name, ret) \
+    DEF_HELPER_FLAGS_0(name, 0, ret)
+#define DEF_HELPER_1(name, ret, t1) \
+    DEF_HELPER_FLAGS_1(name, 0, ret, t1)
+#define DEF_HELPER_2(name, ret, t1, t2) \
+    DEF_HELPER_FLAGS_2(name, 0, ret, t1, t2)
+#define DEF_HELPER_3(name, ret, t1, t2, t3) \
+    DEF_HELPER_FLAGS_3(name, 0, ret, t1, t2, t3)
+#define DEF_HELPER_4(name, ret, t1, t2, t3, t4) \
+    DEF_HELPER_FLAGS_4(name, 0, ret, t1, t2, t3, t4)
+#define DEF_HELPER_5(name, ret, t1, t2, t3, t4, t5) \
+    DEF_HELPER_FLAGS_5(name, 0, ret, t1, t2, t3, t4, t5)
+#define DEF_HELPER_6(name, ret, t1, t2, t3, t4, t5, t6) \
+    DEF_HELPER_FLAGS_6(name, 0, ret, t1, t2, t3, t4, t5, t6)
+#define DEF_HELPER_7(name, ret, t1, t2, t3, t4, t5, t6, t7) \
+    DEF_HELPER_FLAGS_7(name, 0, ret, t1, t2, t3, t4, t5, t6, t7)
+```
+
+## tcg_gen_callN()
+
+>tcg/tcg.c
+
+```c
+/* Note: we convert the 64 bit args to 32 bit and do some alignment
+   and endian swap. Maybe it would be better to do the alignment
+   and endian swap in tcg_reg_alloc_call(). */
+void tcg_gen_callN(void *func, TCGTemp *ret, int nargs, TCGTemp **args)
+{
+    int i, real_args, nb_rets, pi;
+    unsigned sizemask, flags;
+    TCGHelperInfo *info;
+    TCGOp *op;
+
+    info = g_hash_table_lookup(helper_table, (gpointer)func);
+    flags = info->flags;
+#ifdef CONFIG_LOOKUP_JUMP_CACHE
+    if (info->name == "lookup_tb_ptr"){
+        flags |= TCG_CALL_LOOKUP_JUMP_CACHE;
+    }    
+#endif
+    sizemask = info->sizemask;
+
+#ifdef CONFIG_PLUGIN
+    /* detect non-plugin helpers */
+    if (tcg_ctx->plugin_insn && unlikely(strncmp(info->name, "plugin_", 7))) {
+        tcg_ctx->plugin_insn->calls_helpers = true;
+    }
+#endif
+
+#if defined(__sparc__) && !defined(__arch64__) \
+    && !defined(CONFIG_TCG_INTERPRETER)
+    /* We have 64-bit values in one register, but need to pass as two
+       separate parameters.  Split them.  */
+    int orig_sizemask = sizemask;
+    int orig_nargs = nargs;
+    TCGv_i64 retl, reth;
+    TCGTemp *split_args[MAX_OPC_PARAM];
+
+    retl = NULL;
+    reth = NULL;
+    if (sizemask != 0) {
+        for (i = real_args = 0; i < nargs; ++i) {
+            int is_64bit = sizemask & (1 << (i+1)*2);
+            if (is_64bit) {
+                TCGv_i64 orig = temp_tcgv_i64(args[i]);
+                TCGv_i32 h = tcg_temp_new_i32();
+                TCGv_i32 l = tcg_temp_new_i32();
+                tcg_gen_extr_i64_i32(l, h, orig);
+                split_args[real_args++] = tcgv_i32_temp(h);
+                split_args[real_args++] = tcgv_i32_temp(l);
+            } else {
+                split_args[real_args++] = args[i];
+            }
+        }
+        nargs = real_args;
+        args = split_args;
+        sizemask = 0;
+    }
+#elif defined(TCG_TARGET_EXTEND_ARGS) && TCG_TARGET_REG_BITS == 64
+    for (i = 0; i < nargs; ++i) {
+        int is_64bit = sizemask & (1 << (i+1)*2);
+        int is_signed = sizemask & (2 << (i+1)*2);
+        if (!is_64bit) {
+            TCGv_i64 temp = tcg_temp_new_i64();
+            TCGv_i64 orig = temp_tcgv_i64(args[i]);
+            if (is_signed) {
+                tcg_gen_ext32s_i64(temp, orig);
+            } else {
+                tcg_gen_ext32u_i64(temp, orig);
+            }
+            args[i] = tcgv_i64_temp(temp);
+        }
+    }
+#endif /* TCG_TARGET_EXTEND_ARGS */
+
+    op = tcg_emit_op(INDEX_op_call);
+
+    pi = 0;
+    if (ret != NULL) {
+#if defined(__sparc__) && !defined(__arch64__) \
+    && !defined(CONFIG_TCG_INTERPRETER)
+        if (orig_sizemask & 1) {
+            /* The 32-bit ABI is going to return the 64-bit value in
+               the %o0/%o1 register pair.  Prepare for this by using
+               two return temporaries, and reassemble below.  */
+            retl = tcg_temp_new_i64();
+            reth = tcg_temp_new_i64();
+            op->args[pi++] = tcgv_i64_arg(reth);
+            op->args[pi++] = tcgv_i64_arg(retl);
+            nb_rets = 2;
+        } else {
+            op->args[pi++] = temp_arg(ret);
+            nb_rets = 1;
+        }
+#else
+        if (TCG_TARGET_REG_BITS < 64 && (sizemask & 1)) {
+#ifdef HOST_WORDS_BIGENDIAN
+            op->args[pi++] = temp_arg(ret + 1);
+            op->args[pi++] = temp_arg(ret);
+#else
+            op->args[pi++] = temp_arg(ret);
+            op->args[pi++] = temp_arg(ret + 1);
+#endif
+            nb_rets = 2;
+        } else {
+            op->args[pi++] = temp_arg(ret);
+            nb_rets = 1;
+        }
+#endif
+    } else {
+        nb_rets = 0;
+    }
+    TCGOP_CALLO(op) = nb_rets;
+
+    real_args = 0;
+    for (i = 0; i < nargs; i++) {
+        int is_64bit = sizemask & (1 << (i+1)*2);
+        if (TCG_TARGET_REG_BITS < 64 && is_64bit) {
+#ifdef TCG_TARGET_CALL_ALIGN_ARGS
+            /* some targets want aligned 64 bit args */
+            if (real_args & 1) {
+                op->args[pi++] = TCG_CALL_DUMMY_ARG;
+                real_args++;
+            }
+#endif
+           /* If stack grows up, then we will be placing successive
+              arguments at lower addresses, which means we need to
+              reverse the order compared to how we would normally
+              treat either big or little-endian.  For those arguments
+              that will wind up in registers, this still works for
+              HPPA (the only current STACK_GROWSUP target) since the
+              argument registers are *also* allocated in decreasing
+              order.  If another such target is added, this logic may
+              have to get more complicated to differentiate between
+              stack arguments and register arguments.  */
+#if defined(HOST_WORDS_BIGENDIAN) != defined(TCG_TARGET_STACK_GROWSUP)
+            op->args[pi++] = temp_arg(args[i] + 1);
+            op->args[pi++] = temp_arg(args[i]);
+#else
+            op->args[pi++] = temp_arg(args[i]);
+            op->args[pi++] = temp_arg(args[i] + 1);
+#endif
+            real_args += 2;
+            continue;
+        }
+
+        op->args[pi++] = temp_arg(args[i]);
+        real_args++;
+    }
+    op->args[pi++] = (uintptr_t)func;
+    op->args[pi++] = flags;
+    TCGOP_CALLI(op) = real_args;
+
+    /* Make sure the fields didn't overflow.  */
+    tcg_debug_assert(TCGOP_CALLI(op) == real_args);
+    tcg_debug_assert(pi <= ARRAY_SIZE(op->args));
+
+#if defined(__sparc__) && !defined(__arch64__) \
+    && !defined(CONFIG_TCG_INTERPRETER)
+    /* Free all of the parts we allocated above.  */
+    for (i = real_args = 0; i < orig_nargs; ++i) {
+        int is_64bit = orig_sizemask & (1 << (i+1)*2);
+        if (is_64bit) {
+            tcg_temp_free_internal(args[real_args++]);
+            tcg_temp_free_internal(args[real_args++]);
+        } else {
+            real_args++;
+        }
+    }
+    if (orig_sizemask & 1) {
+        /* The 32-bit ABI returned two 32-bit pieces.  Re-assemble them.
+           Note that describing these as TCGv_i64 eliminates an unnecessary
+           zero-extension that tcg_gen_concat_i32_i64 would create.  */
+        tcg_gen_concat32_i64(temp_tcgv_i64(ret), retl, reth);
+        tcg_temp_free_i64(retl);
+        tcg_temp_free_i64(reth);
+    }
+#elif defined(TCG_TARGET_EXTEND_ARGS) && TCG_TARGET_REG_BITS == 64
+    for (i = 0; i < nargs; ++i) {
+        int is_64bit = sizemask & (1 << (i+1)*2);
+        if (!is_64bit) {
+            tcg_temp_free_internal(args[i]);
+        }
+    }
+#endif /* TCG_TARGET_EXTEND_ARGS */
+}
+```
+
+# 6.TCG
 
 ## TCG中间代码参考
 
 > tcg/README
 
 ## 结构体、宏、变量
+
+>include/tcg/tcg-opc.h
+
+```c
+
+#define IMPL(X) (__builtin_constant_p(X) && (X) <= 0 ? TCG_OPF_NOT_PRESENT : 0)
+#if TCG_TARGET_REG_BITS == 32
+# define IMPL64  TCG_OPF_64BIT | TCG_OPF_NOT_PRESENT
+#else
+# define IMPL64  TCG_OPF_64BIT
+#endif
+```
 
 ### 所有中间码的操作码枚举TCGOpcode
 
@@ -2663,7 +3307,7 @@ struct TCGContext {
     uintptr_t *tb_jmp_target_addr; /* tb->jmp_target_arg if !direct_jump */ //不直接跳转
 
     TCGRegSet reserved_regs;//保留的寄存器
-    uint32_t tb_cflags; /* cflags of the current TB */ 编译参数
+    uint32_t tb_cflags; /* cflags of the current TB */ //编译参数
     intptr_t current_frame_offset;
     intptr_t frame_start;
     intptr_t frame_end;
@@ -2817,7 +3461,7 @@ typedef enum TCGTempKind {
 } TCGTempKind;
 ```
 
-### 操作定义TCGOpDef，tcg_op_defs
+### 中间码定义TCGOpDef，中间码数组tcg_op_defs，操作数约束TCGArgConstraint
 
 > include/tcg/tcg.h
 
@@ -2825,32 +3469,56 @@ typedef enum TCGTempKind {
 typedef struct TCGOpDef {
     const char *name;//操作码
     uint8_t nb_oargs, nb_iargs, nb_cargs, nb_args;//输出，输入，常量、参数个数
-    uint8_t flags;
+    uint8_t flags;//标志
     TCGArgConstraint *args_ct;//输入输出参数的约束条件，非通用
 } TCGOpDef;
 typedef struct TCGArgConstraint {
-    unsigned ct : 16;
+    unsigned ct : 16;//常量
     unsigned alias_index : 4;
     unsigned sort_index : 4;
     bool oalias : 1;
     bool ialias : 1;
     bool newreg : 1;
-    TCGRegSet regs;
+    TCGRegSet regs;//寄存器
 } TCGArgConstraint;
 typedef struct TCGTargetOpDef {
     TCGOpcode op;
     const char *args_ct_str[TCG_MAX_OP_ARGS];
 } TCGTargetOpDef
+
+#define TCG_MAX_OP_ARGS 16
+
+/* Bits for TCGOpDef->flags, 8 bits available, all used.  */
+enum {
+    /* Instruction exits the translation block.  */
+    TCG_OPF_BB_EXIT      = 0x01,
+    /* Instruction defines the end of a basic block.  */
+    TCG_OPF_BB_END       = 0x02,
+    /* Instruction clobbers call registers and potentially update globals.  */
+    TCG_OPF_CALL_CLOBBER = 0x04,
+    /* Instruction has side effects: it cannot be removed if its outputs
+       are not used, and might trigger exceptions.  */
+    TCG_OPF_SIDE_EFFECTS = 0x08,
+    /* Instruction operands are 64-bits (otherwise 32-bits).  */
+    TCG_OPF_64BIT        = 0x10,
+    /* Instruction is optional and not implemented by the host, or insn
+       is generic and should not be implemened by the host.  */
+    TCG_OPF_NOT_PRESENT  = 0x20,
+    /* Instruction operands are vectors.  */
+    TCG_OPF_VECTOR       = 0x40,
+    /* Instruction is a conditional branch. */
+    TCG_OPF_COND_BRANCH  = 0x80
+};
 ```
 
 > tcg/tcg-common.c:全局变量tcg_op_defs
 
 ```c
-TCGOpDef tcg_op_defs[] = {//初始化TCG操作
+TCGOpDef tcg_op_defs[] = {//TCG操作定义数组，以列表形式初始化
 #define DEF(s, oargs, iargs, cargs, flags) \
-         { #s, oargs, iargs, cargs, iargs + oargs + cargs, flags },//宏函数定义成参数列表
+         { #s, oargs, iargs, cargs, iargs + oargs + cargs, flags },//宏函数定义成参数列表，给各个成员变量初始化值
 #include "tcg/tcg-opc.h"  //include/tcg/tcg-opc.h中有大量DEF(···)宏函数，都可以展开成{#s，···}参数列表形式
-#undef DEF                //再用参数列表初始化TCG操作
+#undef DEF
 };
 const size_t tcg_op_defs_max = ARRAY_SIZE(tcg_op_defs);//TCG操作个数
 ```
@@ -3054,8 +3722,8 @@ void tcg_context_init(TCGContext *s)
 #endif
 
     tcg_debug_assert(!tcg_regset_test_reg(s->reserved_regs, TCG_AREG0));
-    ts = tcg_global_reg_new_internal(s, TCG_TYPE_PTR, TCG_AREG0, "env");//在s中分配一个全局变量temp--env
-    cpu_env = temp_tcgv_ptr(ts);//将temp类型转换为tcgv类型
+    ts = tcg_global_reg_new_internal(s, TCG_TYPE_PTR, TCG_AREG0, "env");//在TCGContext中分配一个全局变量temps[0]来保存$r9,env。地址赋值给ts
+    cpu_env = temp_tcgv_ptr(ts);//将*temp类型转换为TCGv_ptr类型，cpu_env=ts-tcg_ctx即该temp相对tcg_ctx的偏移量
 }
 ```
 
@@ -3124,7 +3792,7 @@ static void process_op_defs(TCGContext *s)
         const TCGTargetOpDef *tdefs;
         int i, nb_args;
 
-        if (def->flags & TCG_OPF_NOT_PRESENT) {
+        if (def->flags & TCG_OPF_NOT_PRESENT) {//中间码未被后端实现，直接不定义
             continue;
         }
 
@@ -3138,12 +3806,12 @@ static void process_op_defs(TCGContext *s)
          * the array index is in range.  Since the signness of an enum
          * is implementation defined, force the result to unsigned.
          */
-        unsigned con_set = tcg_target_op_def(op);//初始化中间代码
+        unsigned con_set = tcg_target_op_def(op);//返回操作数约束条件集合的宏/字符串的结构体枚举(tcg-target-con-set.h中宏)
         tcg_debug_assert(con_set < ARRAY_SIZE(constraint_sets));
-        tdefs = &constraint_sets[con_set];
+        tdefs = &constraint_sets[con_set];//根据枚举，取结构体数组的对应元素
 
         for (i = 0; i < nb_args; i++) {
-            const char *ct_str = tdefs->args_ct_str[i];
+            const char *ct_str = tdefs->args_ct_str[i];//操作数约束字符串
             /* Incomplete TCGTargetOpDef entry. */
             tcg_debug_assert(ct_str != NULL);
 
@@ -3203,7 +3871,7 @@ static void process_op_defs(TCGContext *s)
 }
 ```
 
-###### 根据host机器给中间代码的约束集合赋值tcg_target_op_def()
+###### sw:根据中间代码选择返回的约束集合索引tcg_target_op_def()
 
 > tcg/sw_64/tcg-target.c.inc
 
@@ -3214,191 +3882,14 @@ static TCGConstraintSetIndex tcg_target_op_def(TCGOpcode op)
     case INDEX_op_goto_ptr:
         return C_O0_I1(r);
 
-    case INDEX_op_ld8u_i32:
-    case INDEX_op_ld8s_i32:
-    case INDEX_op_ld16u_i32:
-    case INDEX_op_ld16s_i32:
-    case INDEX_op_ld_i32:
-    case INDEX_op_ld8u_i64:
-    case INDEX_op_ld8s_i64:
-    case INDEX_op_ld16u_i64:
-    case INDEX_op_ld16s_i64:
-    case INDEX_op_ld32u_i64:
-    case INDEX_op_ld32s_i64:
-    case INDEX_op_ld_i64:
-    case INDEX_op_neg_i32:
-    case INDEX_op_neg_i64:
-    case INDEX_op_not_i32:
-    case INDEX_op_not_i64:
-    case INDEX_op_bswap16_i32:
-    case INDEX_op_bswap32_i32:
-    case INDEX_op_bswap16_i64:
-    case INDEX_op_bswap32_i64:
-    case INDEX_op_bswap64_i64:
-    case INDEX_op_ext8s_i32:
-    case INDEX_op_ext16s_i32:
-    case INDEX_op_ext8u_i32:
-    case INDEX_op_ext16u_i32:
-    case INDEX_op_ext8s_i64:
-    case INDEX_op_ext16s_i64:
-    case INDEX_op_ext32s_i64:
-    case INDEX_op_ext8u_i64:
-    case INDEX_op_ext16u_i64:
-    case INDEX_op_ext32u_i64:
-    case INDEX_op_ext_i32_i64:
-    case INDEX_op_extu_i32_i64:
-    case INDEX_op_extract_i32:
-    case INDEX_op_extract_i64:
-    case INDEX_op_sextract_i32:
-    case INDEX_op_sextract_i64:
-        return C_O1_I1(r, r);
-
-    case INDEX_op_st8_i32:
-    case INDEX_op_st16_i32:
-    case INDEX_op_st_i32:
-    case INDEX_op_st8_i64:
-    case INDEX_op_st16_i64:
-    case INDEX_op_st32_i64:
-    case INDEX_op_st_i64:
-        return C_O0_I2(rZ, r);
-
-    case INDEX_op_add_i32:
-    case INDEX_op_add_i64:
-    case INDEX_op_sub_i32:
-    case INDEX_op_sub_i64:
-        return C_O1_I2(r, r, rU);//gaoqing,rA
-
-    case INDEX_op_setcond_i32:
-    case INDEX_op_setcond_i64:
-        return C_O1_I2(r, r, rU);//compare,gaoqing,rA
-
-    case INDEX_op_mul_i32:
-    case INDEX_op_mul_i64:
-    case INDEX_op_div_i32:
-    case INDEX_op_div_i64:
-    case INDEX_op_divu_i32:
-    case INDEX_op_divu_i64:
-    case INDEX_op_rem_i32:
-    case INDEX_op_rem_i64:
-    case INDEX_op_remu_i32:
-    case INDEX_op_remu_i64:
-    case INDEX_op_muluh_i64:
-    case INDEX_op_mulsh_i64:
-        return C_O1_I2(r, r, r);
-
-    case INDEX_op_and_i32:
-    case INDEX_op_and_i64:
-    case INDEX_op_or_i32:
-    case INDEX_op_or_i64:
-    case INDEX_op_xor_i32:
-    case INDEX_op_xor_i64:
-    case INDEX_op_andc_i32:
-    case INDEX_op_andc_i64:
-    case INDEX_op_orc_i32:
-    case INDEX_op_orc_i64:
-    case INDEX_op_eqv_i32:
-    case INDEX_op_eqv_i64:
-        return C_O1_I2(r, r, rU);//gaoqing,rL
-
-    case INDEX_op_shl_i32:
-    case INDEX_op_shr_i32:
-    case INDEX_op_sar_i32:
-    case INDEX_op_rotl_i32:
-    case INDEX_op_rotr_i32:
-    case INDEX_op_shl_i64:
-    case INDEX_op_shr_i64:
-    case INDEX_op_sar_i64:
-    case INDEX_op_rotl_i64:
-    case INDEX_op_rotr_i64:
-        return C_O1_I2(r, r, ri);
-
-    case INDEX_op_clz_i32:
-    case INDEX_op_clz_i64:
-        return C_O1_I2(r, r, r);//gaoqing rAL 
-
-    case INDEX_op_ctz_i32:
-    case INDEX_op_ctz_i64:
-        return C_O1_I2(r, r, r);//gaoqing rAL
-
-    case INDEX_op_brcond_i32:
-    case INDEX_op_brcond_i64:
-        return C_O0_I2(r, rU);//gaoqing rA
-
-    case INDEX_op_movcond_i32:
-    case INDEX_op_movcond_i64:
-        return C_O1_I4(r, r, rU, rZ, rZ);//gaoqing rA->rU
-
-    case INDEX_op_qemu_ld_i32:
-    case INDEX_op_qemu_ld_i64:
-        return C_O1_I1(r, l);
-
-    case INDEX_op_qemu_st_i32:
-    case INDEX_op_qemu_st_i64:
-        return C_O0_I2(lZ, l);
-
-    case INDEX_op_deposit_i32:
-    case INDEX_op_deposit_i64:
-        return C_O1_I2(r, 0, rZ);
-
-    case INDEX_op_extract2_i32:
-    case INDEX_op_extract2_i64:
-        return C_O1_I2(r, rZ, rZ);
-
-    case INDEX_op_add2_i32:
-    case INDEX_op_add2_i64:
-    case INDEX_op_sub2_i32:
-    case INDEX_op_sub2_i64:
-        return C_O2_I4(r, r, rZ, rZ, rA, rMZ);
-
-    case INDEX_op_add_vec:
-    case INDEX_op_sub_vec:
-    case INDEX_op_mul_vec:
-    case INDEX_op_xor_vec:
-    case INDEX_op_ssadd_vec:
-    case INDEX_op_sssub_vec:
-    case INDEX_op_usadd_vec:
-    case INDEX_op_ussub_vec:
-    case INDEX_op_smax_vec:
-    case INDEX_op_smin_vec:
-    case INDEX_op_umax_vec:
-    case INDEX_op_umin_vec:
-    case INDEX_op_shlv_vec:
-    case INDEX_op_shrv_vec:
-    case INDEX_op_sarv_vec:
-    //case INDEX_op_aa64_sshl_vec:
-        return C_O1_I2(w, w, w);
-    case INDEX_op_not_vec:
-    case INDEX_op_neg_vec:
-    case INDEX_op_abs_vec:
-    case INDEX_op_shli_vec:
-    case INDEX_op_shri_vec:
-    case INDEX_op_sari_vec:
-        return C_O1_I1(w, w);
-    case INDEX_op_ld_vec:
-    case INDEX_op_dupm_vec:
-        return C_O1_I1(w, r);
-    case INDEX_op_st_vec:
-        return C_O0_I2(w, r);
-    case INDEX_op_dup_vec:
-        return C_O1_I1(w, wr);
-    case INDEX_op_or_vec:
-    case INDEX_op_andc_vec:
-        return C_O1_I2(w, w, wO);
-    case INDEX_op_and_vec:
-    case INDEX_op_orc_vec:
-        return C_O1_I2(w, w, wN);
-    case INDEX_op_cmp_vec:
-        return C_O1_I2(w, w, wZ);
-    case INDEX_op_bitsel_vec:
-        return C_O1_I3(w, w, w, w);
-    //case INDEX_op_aa64_sli_vec:
-    //    return C_O1_I2(w, 0, w);
+		...
 
     default:
         g_assert_not_reached();
     }
 }
 ```
+
 ##### tcg_global_reg_new_internal
 ```c
 static TCGTemp *tcg_global_reg_new_internal(TCGContext *s, TCGType type,
@@ -3540,7 +4031,7 @@ Elf文件存在哪儿，中间代码放在哪儿，翻译后的host代码放在�
 
 指令插入，操作链表，结构可以讲一下。
 
-# SW后端
+# 7.sw_64后端
 
 ## 后端翻译tcg_gen_code()
 
@@ -3774,7 +4265,7 @@ int tcg_gen_code(TCGContext *s, TranslationBlock *tb)
 }
 ```
 
-### mov_i32/64翻译tcg_reg_alloc_mov()
+### INDEX_op_mov_i32/64  tcg_reg_alloc_mov()
 
 > tcg/tcg.c
 
@@ -4043,7 +4534,7 @@ bool tcg_op_supported(TCGOpcode op)
         return TCG_TARGET_REG_BITS == 64;
 
     case INDEX_op_movcond_i64:
-        return TCG_TARGET_HAS_movcond_i64;
+        return TCG_TARGET_HAS_movcond_i64;//返回tcg-target.h中定义的宏
     case INDEX_op_div_i64:
     case INDEX_op_divu_i64:
         return TCG_TARGET_HAS_div_i64;
@@ -4194,7 +4685,7 @@ bool tcg_op_supported(TCGOpcode op)
 static void tcg_reg_alloc_op(TCGContext *s, const TCGOp *op)
 {
     const TCGLifeData arg_life = op->life;
-    const TCGOpDef * const def = &tcg_op_defs[op->opc];
+    const TCGOpDef * const def = &tcg_op_defs[op->opc];//中间码定义
     TCGRegSet i_allocated_regs;
     TCGRegSet o_allocated_regs;
     int i, k, nb_iargs, nb_oargs;
@@ -4205,18 +4696,18 @@ static void tcg_reg_alloc_op(TCGContext *s, const TCGOp *op)
     TCGArg new_args[TCG_MAX_OP_ARGS];
     int const_args[TCG_MAX_OP_ARGS];
 
-    nb_oargs = def->nb_oargs;
-    nb_iargs = def->nb_iargs;
+    nb_oargs = def->nb_oargs;//输出参数个数
+    nb_iargs = def->nb_iargs;//输入参数个数
 
     /* copy constants */ //拷贝常量
     memcpy(new_args + nb_oargs + nb_iargs, 
            op->args + nb_oargs + nb_iargs,
            sizeof(TCGArg) * def->nb_cargs);
 
-    i_allocated_regs = s->reserved_regs;
-    o_allocated_regs = s->reserved_regs;
+    i_allocated_regs = s->reserved_regs;//输入参数分配寄存器，保留寄存器？可用寄存器？
+    o_allocated_regs = s->reserved_regs;//输出参数分配寄存器
 
-    /* satisfy input constraints */ //输入满足约束，为参数分配寄存器
+    /* satisfy input constraints */ //输入满足约束，为输入参数分配寄存器
     for (k = 0; k < nb_iargs; k++) {
         TCGRegSet i_preferred_regs, o_preferred_regs;
 
@@ -4228,7 +4719,7 @@ static void tcg_reg_alloc_op(TCGContext *s, const TCGOp *op)
         if (ts->val_type == TEMP_VAL_CONST
             && tcg_target_const_match(ts->val, ts->type, arg_ct)) {//参数是常量且满足约束条件
             /* constant is OK for instruction */
-            const_args[i] = 1;//1表示常量
+            const_args[i] = 1;//const_args[i]为1表示常量
             new_args[i] = ts->val;//new_args为常量
             continue;
         }
@@ -4264,7 +4755,7 @@ static void tcg_reg_alloc_op(TCGContext *s, const TCGOp *op)
         }
 
         temp_load(s, ts, arg_ct->regs, i_allocated_regs, i_preferred_regs);//分配寄存器
-        reg = ts->reg;
+        reg = ts->reg;//分配的寄存器
 
         if (!tcg_regset_test_reg(arg_ct->regs, reg)) {
  allocate_in_reg:
@@ -4317,7 +4808,7 @@ static void tcg_reg_alloc_op(TCGContext *s, const TCGOp *op)
             sync_globals(s, i_allocated_regs);
         }
 
-        /* satisfy the output constraints */
+        /* satisfy the output constraints */ //输出参数满足约束，分配寄存器
         for(k = 0; k < nb_oargs; k++) {
             i = def->args_ct[k].sort_index;
             arg = op->args[i];
@@ -4377,7 +4868,7 @@ static void tcg_reg_alloc_op(TCGContext *s, const TCGOp *op)
 }
 ```
 
-#### 常量约束匹配tcg-target-const-match()
+#### 常量操作数约束匹配tcg_target_const_match()
 
 > tcg/sw_64/tcg-target.c.inc
 
@@ -4453,7 +4944,7 @@ static int tcg_target_const_match(tcg_target_long val, TCGType type,
 #endif
 ```
 
-##### 寄存器和常量的约束字母定义 掩码/bitmap
+##### 操作数的约束字母定义 掩码/bitmap
 
 > tcg/sw_64/tcg-target-con-str.h
 
@@ -4481,7 +4972,7 @@ CONST('S', TCG_CT_CONST_S8)
 CONST('T', TCG_CT_CONST_S16)//feiyang 16位有符号整数
 ```
 
-##### 中间码的约束集合定义
+##### 操作数的约束集合定义
 
 > tcg/sw_64/tcg-target-con-set.h
 
@@ -4524,4 +5015,243 @@ C_O1_I2(r, r, rU)
 
 //feiyang
 C_O1_I2(r, r, T)
+```
+
+### temp读取temp_load
+
+```c
+static void temp_load(TCGContext *s, TCGTemp *ts, TCGRegSet desired_regs,
+                      TCGRegSet allocated_regs, TCGRegSet preferred_regs)
+{
+    TCGReg reg;
+
+    switch (ts->val_type) {
+    case TEMP_VAL_REG:
+        return;
+    case TEMP_VAL_CONST:
+#ifdef CONFIG_REG_OPT
+        if (ts->kind == TEMP_FIXED && ts->type <= TCG_TYPE_I64) {
+            if (!ts->mem_coherent) {
+            tcg_out_movi(s, ts->type, ts->reg, ts->val);
+            }
+            ts->mem_coherent = 0;
+            ts->val_type = TEMP_VAL_REG;
+            return;
+        }
+#endif
+        reg = tcg_reg_alloc(s, desired_regs, allocated_regs,
+                            preferred_regs, ts->indirect_base);
+        if (ts->type <= TCG_TYPE_I64) {
+            tcg_out_movi(s, ts->type, reg, ts->val);
+        } else {
+            uint64_t val = ts->val;
+            MemOp vece = MO_64;
+
+            /*
+             * Find the minimal vector element that matches the constant.
+             * The targets will, in general, have to do this search anyway,
+             * do this generically.
+             */
+            if (val == dup_const(MO_8, val)) {
+                vece = MO_8;
+            } else if (val == dup_const(MO_16, val)) {
+                vece = MO_16;
+            } else if (val == dup_const(MO_32, val)) {
+                vece = MO_32;
+            }
+
+            tcg_out_dupi_vec(s, ts->type, vece, reg, ts->val);
+        }
+        ts->mem_coherent = 0;
+        break;
+    case TEMP_VAL_MEM:
+        reg = tcg_reg_alloc(s, desired_regs, allocated_regs,
+                            preferred_regs, ts->indirect_base);//分配寄存器
+        tcg_out_ld(s, ts->type, reg, ts->mem_base->reg, ts->mem_offset);//装入
+        ts->mem_coherent = 1;
+        break;
+    case TEMP_VAL_DEAD:
+    default:
+        tcg_abort();
+    }
+    ts->reg = reg;
+    ts->val_type = TEMP_VAL_REG;
+    s->reg_to_temp[reg] = ts;
+}
+
+```
+
+
+### temp_sync
+
+```c
+/* Sync a temporary to memory. 'allocated_regs' is used in case a temporary
+   registers needs to be allocated to store a constant.  If 'free_or_dead'
+   is non-zero, subsequently release the temporary; if it is positive, the
+   temp is dead; if it is negative, the temp is free.  */
+static void temp_sync(TCGContext *s, TCGTemp *ts, TCGRegSet allocated_regs,
+                      TCGRegSet preferred_regs, int free_or_dead)
+{
+    if (!temp_readonly(ts) && !ts->mem_coherent) {
+        if (!ts->mem_allocated) {
+            temp_allocate_frame(s, ts);
+        }
+        switch (ts->val_type) {
+        case TEMP_VAL_CONST:
+            /* If we're going to free the temp immediately, then we won't
+               require it later in a register, so attempt to store the
+               constant to memory directly.  */
+#ifdef CONFIG_REG_OPT
+            if (ts->kind == TEMP_FIXED && ts->type <= TCG_TYPE_I64) {
+                tcg_out_movi(s, ts->type, ts->reg, ts->val);
+                break;
+            }
+#endif
+            if (free_or_dead
+                && tcg_out_sti(s, ts->type, ts->val,
+                               ts->mem_base->reg, ts->mem_offset)) {
+                break;
+            }
+            temp_load(s, ts, tcg_target_available_regs[ts->type],
+                      allocated_regs, preferred_regs);
+            /* fallthrough */
+
+        case TEMP_VAL_REG:
+#ifdef CONFIG_REG_OPT
+            if (ts->kind != TEMP_FIXED) {
+            tcg_out_st(s, ts->type, ts->reg,
+                       ts->mem_base->reg, ts->mem_offset);
+	     }
+#else
+            tcg_out_st(s, ts->type, ts->reg,
+                       ts->mem_base->reg, ts->mem_offset);
+#endif
+            break;
+
+        case TEMP_VAL_MEM:
+            break;
+
+        case TEMP_VAL_DEAD:
+        default:
+            tcg_abort();
+        }
+        ts->mem_coherent = 1;
+    }
+    if (free_or_dead) {
+        temp_free_or_dead(s, ts, free_or_dead);
+    }
+}
+```
+
+### tcg_out_op
+
+```c
+case INDEX_op_qemu_ld_i64:
+        tcg_out_qemu_ld(s, a0, a1, a2, ext);
+        break;
+```
+
+### INDEX_op_qemu_ld_i64
+
+```c
+static void tcg_out_qemu_ld(TCGContext *s, TCGReg data_reg, TCGReg addr_reg, TCGMemOpIdx oi, TCGType ext)
+{
+    MemOp memop = get_memop(oi);
+    const TCGType otype = TARGET_LONG_BITS == 64 ? TCG_TYPE_I64: TCG_TYPE_I32;
+#ifdef CONFIG_SOFTMMU
+    unsigned mem_index = get_mmuidx(oi);
+    tcg_insn_unit *label_ptr;
+
+    tcg_out_tlb_read(s, addr_reg, memop, &label_ptr, mem_index, 1);
+    tcg_out_qemu_ld_direct(s, memop, ext, data_reg,
+                           TCG_REG_X1, otype, addr_reg);
+    add_qemu_ldst_label(s, true, oi, ext, data_reg, addr_reg,
+                        s->code_ptr, label_ptr);
+
+#else /* !CONFIG_SOFTMMU */
+    if (USE_GUEST_BASE) {//0 qemu -B 设置
+        tcg_out_qemu_ld_direct(s, memop, ext, data_reg, TCG_REG_GUEST_BASE, otype, addr_reg);
+    } else {
+        tcg_out_qemu_ld_direct(s, memop, ext, data_reg, addr_reg, TCG_TYPE_I64, TCG_REG_ZERO);
+    }
+#endif /* CONFIG_SOFTMMU */
+static void tcg_out_qemu_ld_direct(TCGContext *s, MemOp memop, TCGType ext,
+                                   TCGReg data_r, TCGReg addr_r,
+                                   TCGType otype, TCGReg off_r)
+{
+    TCGReg TMP = TCG_REG_TMP;
+    if(otype == TCG_TYPE_I32)
+    {
+        tcg_out_insn_simpleImm(s, OPC_ZAPNOT_I, TMP, off_r, 0xf);
+        tcg_out_insn_simpleReg(s, OPC_ADDL, TMP, addr_r, TCG_REG_TMP); 
+    }
+    else if(off_r == TCG_REG_ZERO)//otype == TCG_TYPE_I64
+    {
+        //tcg_out_insn_simpleReg(s, OPC_ADDL, TCG_REG_TMP, addr_r, off_r); 
+        TMP = addr_r;
+    }else {
+       tcg_out_insn_simpleReg(s, OPC_ADDL, TMP, addr_r, off_r); 
+    }
+    
+    const MemOp bswap = memop & MO_BSWAP;
+
+    switch (memop & MO_SSIZE) {
+    case MO_UB:
+        tcg_out_ldst(s, OPC_LDBU, data_r, TMP, 0, zeroExt);
+        break;
+    case MO_SB:
+        tcg_out_ldst(s, OPC_LDBU, data_r, TMP, 0, sigExt);
+	if(ext == TCG_TYPE_I32)
+	{
+            tcg_out_insn_simpleImm(s, OPC_ZAPNOT_I, data_r, data_r, 0xf);
+        }
+        break;
+    case MO_UW:
+        tcg_out_ldst(s, OPC_LDHU, data_r, TMP, 0, zeroExt);
+        if (bswap) {
+            tcg_out_bswap16(s, ext, data_r, data_r);
+        }
+        break;
+    case MO_SW:
+        if(bswap) {
+            tcg_out_ldst(s, OPC_LDHU, data_r, TMP, 0, zeroExt);
+            tcg_out_bswap16(s, ext, data_r, data_r);
+            tcg_out_insn_simpleReg(s, OPC_SEXTH, data_r, TCG_REG_ZERO, data_r);
+        }
+        else
+        {
+            tcg_out_ldst(s, OPC_LDHU, data_r, TMP, 0, sigExt);
+        }
+	if(ext == TCG_TYPE_I32)
+	{
+            tcg_out_insn_simpleImm(s, OPC_ZAPNOT_I, data_r, data_r, 0xf);
+        }
+        break;
+  case MO_UL:
+        tcg_out_ldst(s, OPC_LDW, data_r, TMP, 0, zeroExt);
+        if (bswap) {
+            tcg_out_bswap32(s, ext, data_r, data_r);
+        }
+        break;
+    case MO_SL:
+        if (bswap) {
+            tcg_out_ldst(s, OPC_LDW, data_r, TMP, 0, zeroExt);    
+            tcg_out_bswap32(s, ext, data_r, data_r);
+	    tcg_out_insn_simpleReg(s, OPC_ADDW, data_r, data_r, TCG_REG_ZERO);
+        }
+        else
+        {
+            tcg_out_ldst(s, OPC_LDW, data_r, TMP, 0, sigExt);    
+        }
+        break;
+    case MO_Q:
+        tcg_out_ldst(s, OPC_LDL, data_r, TMP, 0, zeroExt);
+        if (bswap) {
+            tcg_out_bswap64(s, ext, data_r, data_r);
+        }
+        break;
+    default:
+        tcg_abort();
+    }
+}
 ```

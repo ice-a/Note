@@ -1,3 +1,5 @@
+# GCC编译选项
+
 ```shell
 # 静态编译 
 gcc  源文件 -o 生成 --static
@@ -6,9 +8,14 @@ gcc  源文件 -o 生成
 
 gcc -g # 生成调试信息
 
+gcc -DDEBUG # 生成debug版，会定义宏DEBUG
+
 gcc -s # 删除符号表和重定向信息
 
-gcc -l # 指定要链接的库
+gcc -l # 指定要链接的库，如数学库lm，lgfortran
+
+gcc -Wall # 显示所有警告信息
+gcc -w    # 不显示警告信息
 ```
 
 # Strace
@@ -16,7 +23,6 @@ gcc -l # 指定要链接的库
 ```shell
 strace ./qemu-sw64 -cpu core3 /home/fei/hello-sw-dynamic >log 2>&1 可以查看错误日志
 找到access那一栏，可以看到去哪个目录下找动态库，哪个没找到
-目前6.2没做动态这一块
 ```
 
 # Glibc

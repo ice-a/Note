@@ -411,3 +411,18 @@ git config --global core.quotepath false
 ssh客户端配置，配置ssh密钥和ssh客户端openssh
 
 代理服务器，还要勾选向Git/~~添加代理服务器信息，才能正常使用
+
+# ISSUE
+
+## 修改最后一次提交
+
+```shell
+git pull
+git add 遗漏或者想修改的文件
+git commit --amend -m ""    # 有注释，两种界面？
+git commit --amend -no-edit # 无注释
+git push --force 
+git reset --hard 上一个版本  # 这一步对tag无作用，先回退再git tags -d 手动删除后再git pull --tags?
+git pull --tags
+git pull # 因为修改后最近一个版本号会发生改变，因此不能直接git pull需要先回到上一个版本 
+```
