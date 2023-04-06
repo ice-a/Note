@@ -219,10 +219,15 @@ sudo chown fei:fei /home/fei/ # 改文件夹内容
 解决方案：手动启动ssh服务，同时设置ssh服务开机键自启动。
 
 ```shell
+# 安装ssh服务
+sudo apt-get install openssh-server
+# 启动ssh服务
 sudo service ssh start
+# 查看ssh服务状态
 systemctl status sshd # 开机未自动启动
 # systemctl status sshd ？
-systemctl enable ssh # 设置开机自启动
+# 设置开机自启动
+systemctl enable ssh 
 ```
 [百度搜索](https://www.baidu.com/s?wd=unit%20sshd.service%20not%20found&rsv_spt=1&rsv_iqid=0xd2d9fe7a00007d43&issp=1&f=3&rsv_bp=1&rsv_idx=2&ie=utf-8&tn=baiduhome_pg&rsv_enter=1&rsv_dl=ih_5&rsv_sug3=1&rsv_sug1=1&rsv_sug7=001&rsv_sug2=1&rsv_btype=i&rsp=5&rsv_sug9=es_2_1&rsv_sug4=2544&rsv_sug=9)
 [Unit sshd.service could not be found](https://blog.csdn.net/u012253351/article/details/126153842)
@@ -272,7 +277,7 @@ apt install deepin-terminal
 
 解决方案：再次修改密码，不按下小键盘锁定键输入123456。
 
-## 4、密码安全检查
+## 4、密码复杂度
 
 > 修改密码时提示：BAD PASSWORD：it is too simplistic/systematic
 
@@ -376,10 +381,15 @@ sudo systemctl restart ssh
 /etc/os-release   # 操作系统发行版
 /etc/os-version   # 操作系统具体版本
 /etc/product-info # 完整版本号
-lscpu             # 查看CPU参数
-/proc/cpuinfo     # CPU参数
+lscpu             # 查看CPU
+/proc/cpuinfo     # 查看CPU
 arch              # 架构
 uname -a          # 内核版本
+free -m           # 查看内存
+df -Th            # 查看硬盘
+gcc -v            # 查看gcc版本
+getconf PAGESIZE  # 查看内存页大小PAGESIZE
+grep -i huge /proc/meminfo # 查看大页Hugepagesize
 ```
 
 # win10

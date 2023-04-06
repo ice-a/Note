@@ -365,7 +365,7 @@ static void tcg_reg_alloc_op(TCGContext *s, const TCGOp *op)
 static void tcg_out_op(TCGContext *s, TCGOpcode opc, 
                         const TCGArg args[TCG_MAX_OP_ARGS],const int const_args[TCG_MAX_OP_ARGS])
 {
-    TCGArg a0 = args[0];//常量
+    TCGArg a0 = args[0];//常量，tb + tb_num
      switch (opc) {
      case INDEX_op_exit_tb: /* sw */
         /* Reuse the zeroing that exists for goto_ptr.  */

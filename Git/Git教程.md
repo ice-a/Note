@@ -161,14 +161,16 @@ $ git add [options] [<pathspec>]
     -h,--help       -h查看帮助，--help可以查看更详细内容
 # 将暂存区文件撤出
 $ git restore --staged [filename]
+$ git reset [--soft] HEAD [filename] # 将add的文件回退到当前版本，保留本地工作区代码
 ```
 
 ## 3.5 提交本地库
 
 ```shell
-$ git commit 
-$ git commit -m "日志信息" 文件名
-$ git commit --amend
+$ git commit [-m "备注信息"] [文件名]
+# 在日常开发中，难免会出现提交时备注信息打错了，想要修改它。
+$ git commit --amend # 进入 vi 编辑模式，最上方就是提交时填写的备注信息
+$ git commit --amend -m <message> # 无需进入 vi 编辑模式，修改上次提交记录的备注信息
 ```
 
 ## 3.6 历史版本

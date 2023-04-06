@@ -1314,7 +1314,7 @@ static inline TranslationBlock *tb_lookup(CPUState *cpu, target_ulong pc,
 
 #### TB生成tb_gen_code()
 
-> accel/tcg/cpu-exec.c
+> accel/tcg/translate-all.c
 
 ```c
 TranslationBlock *tb_gen_code(CPUState *cpu,
@@ -2631,7 +2631,7 @@ include/tcg/tcg-op.h
 ```c
 static DisasJumpType gen_sys_call(DisasContext *ctx, int syscode)
 {
-    if (syscode >= 0x80 && syscode <= 0xbf) {//系统调用号在128~191之间进行特殊处理
+    if (syscode >= 0x80 && syscode <= 0xbf) {//系统调用号在128~191之间的进行特殊处理
         switch (syscode) {
         case 0x86://__NR_shutdown  134
             /* IMB */
@@ -3728,6 +3728,7 @@ void tcg_context_init(TCGContext *s)
 ```
 
 ##### tcg_target_init()
+
 ```c
 static void tcg_target_init(TCGContext *s)
 {
@@ -3890,7 +3891,118 @@ static TCGConstraintSetIndex tcg_target_op_def(TCGOpcode op)
 }
 ```
 
+###### 寄存器和常量的约束宏定义 掩码/bitmap
+
+> include/tcg/tcg.h
+
+```c
+#define TCG_CT_CONST  1 /* any constant of register size */
+```
+
+> tcg/sw_64/tcg-target.c.inc
+
+```c
+/*
+* refer to mips
+* contact with "tcg-target-con-str.h"
+*/
+#define TCG_CT_CONST_ZERO 0x100
+#define TCG_CT_CONST_LONG 0x200
+#define TCG_CT_CONST_MONE 0x400
+#define TCG_CT_CONST_ORRI 0x800
+#define TCG_CT_CONST_WORD 0x1000
+#define TCG_CT_CONST_U8 0x2000
+#define TCG_CT_CONST_S8 0x4000
+#define TCG_CT_CONST_S16 0x8000
+
+#define ALL_GENERAL_REGS  0xffffffffu
+#define ALL_VECTOR_REGS   0xffffffff00000000ull
+
+
+#ifdef CONFIG_SOFTMMU
+    #define ALL_QLDST_REGS \
+        (ALL_GENERAL_REGS & ~((1 << TCG_REG_X0) | (1 << TCG_REG_X1) | \
+                          (1 << TCG_REG_X2) | (1 << TCG_REG_X3)))
+#else
+    #define ALL_QLDST_REGS   ALL_GENERAL_REGS
+#endif
+```
+
+###### 操作数的约束字母定义 掩码/bitmap
+
+> tcg/sw_64/tcg-target-con-str.h
+
+```c
+/*
+ * Define constraint letters for register sets:
+ * REGS(letter, register_mask)
+ */
+REGS('r', ALL_GENERAL_REGS)
+REGS('l', ALL_QLDST_REGS)
+REGS('w', ALL_VECTOR_REGS)
+
+/*
+ * Define constraint letters for constants:
+ * CONST(letter, TCG_CT_CONST_* bit set)
+ */
+CONST('Z', TCG_CT_CONST_ZERO)
+CONST('A', TCG_CT_CONST_LONG) // ?
+CONST('M', TCG_CT_CONST_MONE)
+CONST('O', TCG_CT_CONST_ORRI)
+CONST('W', TCG_CT_CONST_WORD)
+CONST('L', TCG_CT_CONST_LONG)
+CONST('U', TCG_CT_CONST_U8)
+CONST('S', TCG_CT_CONST_S8)   
+CONST('T', TCG_CT_CONST_S16)//feiyang 16位有符号整数
+```
+
+###### 操作数的约束集合定义
+
+> tcg/sw_64/tcg-target-con-set.h
+
+```c
+/*
+ * C_On_Im(...) defines a constraint set with <n> outputs and <m> inputs.
+ * Each operand should be a sequence of constraint letters as defined by
+ * tcg-target-con-str.h; the constraint combination is inclusive or.
+ */
+C_O0_I1(r)
+C_O0_I2(lZ, l)
+C_O0_I2(r, rA)
+C_O0_I2(rZ, r)
+C_O0_I2(w, r)
+C_O1_I1(r, l)
+C_O1_I1(r, r)
+C_O1_I1(w, r)
+C_O1_I1(w, w)
+C_O1_I1(w, wr)
+C_O1_I2(r, 0, rZ)
+C_O1_I2(r, r, r)
+C_O1_I2(r, r, rA)
+C_O1_I2(r, r, rAL)
+C_O1_I2(r, r, ri)
+C_O1_I2(r, r, rL)
+C_O1_I2(r, rZ, rZ)
+C_O1_I2(w, 0, w)
+C_O1_I2(w, w, w)
+C_O1_I2(w, w, wN)
+C_O1_I2(w, w, wO)
+C_O1_I2(w, w, wZ)
+C_O1_I3(w, w, w, w)
+C_O1_I4(r, r, rA, rZ, rZ)
+C_O2_I4(r, r, rZ, rZ, rA, rMZ)
+
+//gaoqing 
+C_O1_I4(r, r, rU, rZ, rZ)
+C_O0_I2(r, rU)
+C_O1_I2(r, r, rU)
+
+//feiyang
+C_O1_I2(r, r, T)
+```
+
 ##### tcg_global_reg_new_internal
+
 ```c
 static TCGTemp *tcg_global_reg_new_internal(TCGContext *s, TCGType type,
                                             TCGReg reg, const char *name)
@@ -3915,7 +4027,9 @@ static TCGTemp *tcg_global_reg_new_internal(TCGContext *s, TCGType type,
 #define tcg_regset_reset_reg(d, r) ((d) &= ~((TCGRegSet)1 << (r)))
 #define tcg_regset_test_reg(d, r)  (((d) >> (r)) & 1)
 ```
+
 ######  tcg_global_alloc()
+
 ```c
 static TCGTemp *tcg_global_alloc(TCGContext *s)
 {
@@ -3931,7 +4045,9 @@ static TCGTemp *tcg_global_alloc(TCGContext *s)
 }
 
 ```
+
 tcg_temp_alloc()
+
 ```c
 static TCGTemp *tcg_temp_alloc(TCGContext *s)
 {
@@ -4016,6 +4132,9 @@ typedef struct QTailQLink {
                 (var);                                                  \
                 (var) = ((var)->field.tqe_next))
 ```
+
+## 中间代码优化
+
 
 # PPT
 
@@ -4757,8 +4876,8 @@ static void tcg_reg_alloc_op(TCGContext *s, const TCGOp *op)
         temp_load(s, ts, arg_ct->regs, i_allocated_regs, i_preferred_regs);//分配寄存器
         reg = ts->reg;//分配的寄存器
 
-        if (!tcg_regset_test_reg(arg_ct->regs, reg)) {
- allocate_in_reg:
+        if (!tcg_regset_test_reg(arg_ct->regs, reg)) {//分配的寄存器是否在中间码的操作数约束集合中
+ allocate_in_reg://重新分配寄存器
             /*
              * Allocate a new register matching the constraint
              * and move the temporary register into it.
@@ -4767,12 +4886,12 @@ static void tcg_reg_alloc_op(TCGContext *s, const TCGOp *op)
                       i_allocated_regs, 0);
             reg = tcg_reg_alloc(s, arg_ct->regs, i_allocated_regs,
                                 o_preferred_regs, ts->indirect_base);
-            if (!tcg_out_mov(s, ts->type, reg, ts->reg)) {
+            if (!tcg_out_mov(s, ts->type, reg, ts->reg)) {//将旧寄存器内容mov到新寄存器中
                 /*
                  * Cross register class move not supported.  Sync the
                  * temp back to its slot and load from there.
                  */
-                temp_sync(s, ts, i_allocated_regs, 0, 0);
+                temp_sync(s, ts, i_allocated_regs, 0, 0);//同步到temp中
                 tcg_out_ld(s, ts->type, reg,
                            ts->mem_base->reg, ts->mem_offset);
             }
@@ -4849,7 +4968,7 @@ static void tcg_reg_alloc_op(TCGContext *s, const TCGOp *op)
         tcg_out_vec_op(s, op->opc, TCGOP_VECL(op), TCGOP_VECE(op),
                        new_args, const_args);
     } else {
-        tcg_out_op(s, op->opc, new_args, const_args);//翻译中间码
+        tcg_out_op(s, op->opc, new_args, const_args);//翻译中间码为后端指令
     }
 
     /* move the outputs in the correct register if needed */
@@ -4860,7 +4979,7 @@ static void tcg_reg_alloc_op(TCGContext *s, const TCGOp *op)
         tcg_debug_assert(!temp_readonly(ts));
 
         if (NEED_SYNC_ARG(i)) {
-            temp_sync(s, ts, o_allocated_regs, 0, IS_DEAD_ARG(i));//同步到内存
+            temp_sync(s, ts, o_allocated_regs, 0, IS_DEAD_ARG(i));//同步到temp
         } else if (IS_DEAD_ARG(i)) {
             temp_dead(s, ts);
         }
@@ -4905,116 +5024,6 @@ static int tcg_target_const_match(tcg_target_long val, TCGType type,
     }
     return 0;
 }
-```
-
-##### 寄存器和常量的约束宏定义 掩码/bitmap
-
-> include/tcg/tcg.h
-
-```c
-#define TCG_CT_CONST  1 /* any constant of register size */
-```
-
-> tcg/sw_64/tcg-target.c.inc
-
-```c
-/*
-* refer to mips
-* contact with "tcg-target-con-str.h"
-*/
-#define TCG_CT_CONST_ZERO 0x100
-#define TCG_CT_CONST_LONG 0x200
-#define TCG_CT_CONST_MONE 0x400
-#define TCG_CT_CONST_ORRI 0x800
-#define TCG_CT_CONST_WORD 0x1000
-#define TCG_CT_CONST_U8 0x2000
-#define TCG_CT_CONST_S8 0x4000
-#define TCG_CT_CONST_S16 0x8000
-
-#define ALL_GENERAL_REGS  0xffffffffu
-#define ALL_VECTOR_REGS   0xffffffff00000000ull
-
-
-#ifdef CONFIG_SOFTMMU
-    #define ALL_QLDST_REGS \
-        (ALL_GENERAL_REGS & ~((1 << TCG_REG_X0) | (1 << TCG_REG_X1) | \
-                          (1 << TCG_REG_X2) | (1 << TCG_REG_X3)))
-#else
-    #define ALL_QLDST_REGS   ALL_GENERAL_REGS
-#endif
-```
-
-##### 操作数的约束字母定义 掩码/bitmap
-
-> tcg/sw_64/tcg-target-con-str.h
-
-```c
-/*
- * Define constraint letters for register sets:
- * REGS(letter, register_mask)
- */
-REGS('r', ALL_GENERAL_REGS)
-REGS('l', ALL_QLDST_REGS)
-REGS('w', ALL_VECTOR_REGS)
-
-/*
- * Define constraint letters for constants:
- * CONST(letter, TCG_CT_CONST_* bit set)
- */
-CONST('Z', TCG_CT_CONST_ZERO)
-CONST('A', TCG_CT_CONST_LONG) // ?
-CONST('M', TCG_CT_CONST_MONE)
-CONST('O', TCG_CT_CONST_ORRI)
-CONST('W', TCG_CT_CONST_WORD)
-CONST('L', TCG_CT_CONST_LONG)
-CONST('U', TCG_CT_CONST_U8)
-CONST('S', TCG_CT_CONST_S8)   
-CONST('T', TCG_CT_CONST_S16)//feiyang 16位有符号整数
-```
-
-##### 操作数的约束集合定义
-
-> tcg/sw_64/tcg-target-con-set.h
-
-```c
-/*
- * C_On_Im(...) defines a constraint set with <n> outputs and <m> inputs.
- * Each operand should be a sequence of constraint letters as defined by
- * tcg-target-con-str.h; the constraint combination is inclusive or.
- */
-C_O0_I1(r)
-C_O0_I2(lZ, l)
-C_O0_I2(r, rA)
-C_O0_I2(rZ, r)
-C_O0_I2(w, r)
-C_O1_I1(r, l)
-C_O1_I1(r, r)
-C_O1_I1(w, r)
-C_O1_I1(w, w)
-C_O1_I1(w, wr)
-C_O1_I2(r, 0, rZ)
-C_O1_I2(r, r, r)
-C_O1_I2(r, r, rA)
-C_O1_I2(r, r, rAL)
-C_O1_I2(r, r, ri)
-C_O1_I2(r, r, rL)
-C_O1_I2(r, rZ, rZ)
-C_O1_I2(w, 0, w)
-C_O1_I2(w, w, w)
-C_O1_I2(w, w, wN)
-C_O1_I2(w, w, wO)
-C_O1_I2(w, w, wZ)
-C_O1_I3(w, w, w, w)
-C_O1_I4(r, r, rA, rZ, rZ)
-C_O2_I4(r, r, rZ, rZ, rA, rMZ)
-
-//gaoqing 
-C_O1_I4(r, r, rU, rZ, rZ)
-C_O0_I2(r, rU)
-C_O1_I2(r, r, rU)
-
-//feiyang
-C_O1_I2(r, r, T)
 ```
 
 ### temp读取temp_load
@@ -5082,7 +5091,7 @@ static void temp_load(TCGContext *s, TCGTemp *ts, TCGRegSet desired_regs,
 ```
 
 
-### temp_sync
+### temp同步temp_sync
 
 ```c
 /* Sync a temporary to memory. 'allocated_regs' is used in case a temporary

@@ -16,6 +16,9 @@ gcc -l # 指定要链接的库，如数学库lm，lgfortran
 
 gcc -Wall # 显示所有警告信息
 gcc -w    # 不显示警告信息
+
+gcc/clang/g++/clang++ -v 可执行文件 # 查看include的查找路径
+gcc/clang/g++/clang++ -dM -E 可执行文件 |grep __GNUC # 查看编译器预定义宏
 ```
 
 # Strace

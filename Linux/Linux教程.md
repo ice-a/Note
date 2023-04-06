@@ -292,7 +292,24 @@ apt automove
 
 apt purge package 
 
-apt clean 
+apt clean
+
+sudo apt-get install apt-file # 安装
+apt-file update # 更新
+apt-file search .so/path # 查找库所在的包
+
+dpkg-deb -x .deb # 解压deb包
+
+# 当前系统支持的软件版本不够，可以去另一系统下载源码移过来自己编译然后替换软件
+apt source cmake # 下载cmake源码
+grep -rn '__alpha' # 添加__sw_64__宏
+dpkg-buildpackage -sa -nc -j40 # 编译
+
+# 查看软件包依赖关系
+dpkg -s
+apt-get delete --print-uris
+rpm -q --requires
+yum deplist
 ```
 
 # 制作符号链接
